@@ -1,0 +1,134 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  createState,
+  tick,
+  pause,
+  checkpoint,
+  fluidProgress,
+  type Contact,
+} from "../src/game/simulation.ts";
+const contact: Contact = {
+  clearance: 0.1,
+  inField: true,
+  pocket: 0,
+  vessel: null,
+  shaftContact: false,
+  tip: [0.6, 0.5, 0.1],
+  bleedDistance: Infinity,
+};
+function advance(
+  s: ReturnType<typeof createState>,
+  seconds: number,
+  c = contact,
+  hz = 60,
+) {
+  for (let i = 0; i < seconds * hz; i++) tick(s, c, 1 / hz);
+}
+test("leaving exposure disengages tool while ongoing bleeding advances", () => {
+  const s = createState();
+  s.status = "running";
+  s.bleeding = 0.4;
+  s.action = true;
+  advance(s, 10, { ...contact, inField: false });
+  assert.equal(s.action, false);
+  assert.ok(s.bleeding > 0.45);
+  assert.ok(s.elapsed > 9.9);
+});
+test("paused simulation preserves all tissue and complication state", () => {
+  const s = createState();
+  s.status = "running";
+  s.bleeding = 0.4;
+  s.action = true;
+  pause(s);
+  advance(s, 10, { ...contact, clearance: -0.2 });
+  assert.equal(s.bleeding, 0.4);
+  assert.equal(s.injury, 0);
+  assert.equal(s.elapsed, 0);
+  assert.equal(s.action, false);
+});
+test("shaft injury applies even with the tip outside the opening", () => {
+  const s = createState();
+  s.status = "running";
+  advance(s, 0.2, { ...contact, inField: false, shaftContact: true });
+  assert.ok(s.injury > 0.2);
+  assert.equal(s.action, false);
+});
+test("shaft injury records the actual contact location instead of the healthy tip", () => {
+  const s = createState();
+  s.status = "running";
+  advance(s, 0.2, {
+    ...contact,
+    shaftContact: true,
+    injuryPoint: [-0.6, 0.3, 0.1],
+    tip: [0.8, 0.7, 0.4],
+  });
+  assert.deepEqual(s.bleedPosition, [-0.6, 0.3, 0.1]);
+  assert.deepEqual(
+    s.events.find((e) => e.type === "injury")?.position,
+    [-0.6, 0.3, 0.1],
+  );
+});
+test("damage and aspiration agree at distinct simulation rates", () => {
+  for (const hz of [30, 60, 120]) {
+    const s = createState();
+    s.status = "running";
+    s.action = true;
+    advance(s, 1, contact, hz);
+    assert.ok(Math.abs(s.pockets[0].remaining - 0.52) < 1e-8);
+    const d = createState();
+    d.status = "running";
+    advance(d, 0.2, { ...contact, clearance: -0.1 }, hz);
+    assert.ok(Math.abs(d.injury - 0.23) < 0.001);
+  }
+});
+test("critical vessel contact fails consistently and records its cause", () => {
+  const s = createState();
+  s.status = "running";
+  advance(s, 1, { ...contact, clearance: -0.1, vessel: "cortical vessel" });
+  assert.equal(s.status, "failed");
+  assert.equal(s.action, false);
+  assert.ok(s.events.some((e) => e.detail.includes("cortical vessel")));
+});
+test("a true checkpoint restores completed work and prior injury", () => {
+  const saved = createState();
+  saved.stage = 2;
+  saved.pockets.forEach((p) => (p.remaining = 0));
+  saved.injury = 0.1;
+  saved.elapsed = 20;
+  const current = structuredClone(saved);
+  current.injury = 0.8;
+  current.elapsed = 30;
+  const restored = checkpoint(current, saved);
+  assert.equal(restored.stage, 2);
+  assert.equal(restored.injury, 0.1);
+  assert.equal(restored.elapsed, 20);
+  assert.equal(fluidProgress(restored), 1);
+  assert.notEqual(restored.pockets, saved.pockets);
+  assert.equal(restored.status, "running");
+});
+test("complete path requires clearing, rinsing, release and inspection", () => {
+  const s = createState();
+  s.status = "running";
+  s.action = true;
+  for (let i = 0; i < s.pockets.length; i++)
+    advance(s, 2.2, { ...contact, pocket: i });
+  assert.equal(s.stage, 2);
+  assert.equal(s.status, "running");
+  s.tool = "irrigation";
+  advance(s, 4.4, { ...contact, pocket: -1 });
+  assert.equal(s.status, "running");
+  s.action = false;
+  advance(s, 2.7, { ...contact, pocket: -1 });
+  assert.equal(s.status, "success");
+});
+test("irrigation never repairs existing injury", () => {
+  const s = createState();
+  s.status = "running";
+  s.injury = 0.3;
+  s.tool = "irrigation";
+  s.action = true;
+  advance(s, 5);
+  assert.equal(s.injury, 0.3);
+  assert.equal(s.clarity, 1);
+});
