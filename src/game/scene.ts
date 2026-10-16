@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { DecalGeometry } from "three/addons/geometries/DecalGeometry.js";
 import type { GameState, Pocket } from "./simulation";
 
@@ -61,7 +62,8 @@ function ringGeometry(inner: number, outer: number, z: number, cloth = false) {
         Math.cos(a) * r * uneven,
         Math.sin(a) * r * 0.84 * uneven,
         z +
-          fold +
+          fold -
+          (cloth ? Math.max(0, r - 2.2) * 0.35 : 0) +
           (cloth
             ? 0.035 * Math.sin(r * 5)
             : Math.sin((j / radial) * Math.PI) * 0.055),
@@ -149,6 +151,7 @@ export function buildField(
   drape: THREE.Texture,
   pockets: Pocket[],
   cortex: THREE.Mesh,
+  boneTexture: THREE.Texture,
 ): FieldObjects {
   drape.colorSpace = THREE.SRGBColorSpace;
   drape.wrapS = drape.wrapT = THREE.RepeatWrapping;
@@ -162,9 +165,12 @@ export function buildField(
     color: 0x6b8b83,
     side: THREE.DoubleSide,
   });
-  mesh(ringGeometry(1.98, 12, 0.4, true), cloth, scene);
+  mesh(ringGeometry(1.98, 5.5, 0.4, true), cloth, scene);
   const bone = new THREE.MeshStandardMaterial({
-    color: 0xf4d6a3,
+    color: 0xe4d6b7,
+    map: boneTexture,
+    bumpMap: boneTexture,
+    bumpScale: 0.022,
     vertexColors: true,
     roughness: 0.52,
     side: THREE.DoubleSide,
@@ -221,53 +227,101 @@ export function buildField(
     scene,
   );
 
-  // Authored retractor: a thin curved blade, bracket and two machined screws.
+  // Thin curved blade, machined arm and small knurled adjustment wheel.
   const retractor = new THREE.Group();
   scene.add(retractor);
-  const blade = new THREE.BoxGeometry(0.13, 0.6, 0.085);
-  mesh(blade, metal, retractor).position.set(-1.7, -0.1, 0.43);
-  lineTube(
-    [
-      new THREE.Vector3(-1.72, -0.2, 0.43),
-      new THREE.Vector3(-1.98, -0.35, 0.68),
-      new THREE.Vector3(-2.5, -0.45, 0.7),
-    ],
-    0.045,
-    metal,
+  const polished = new THREE.MeshStandardMaterial({
+    color: 0xa9b1b2,
+    metalness: 0.94,
+    roughness: 0.24,
+    envMapIntensity: 0.65,
+    side: THREE.DoubleSide,
+  });
+  const shape = new THREE.Shape();
+  shape.moveTo(-1.68, 0.25);
+  shape.lineTo(-1.7, 0.53);
+  shape.quadraticCurveTo(-1.71, 0.61, -1.82, 0.64);
+  shape.lineTo(-1.91, 0.65);
+  shape.lineTo(-1.91, 0.67);
+  shape.lineTo(-1.81, 0.66);
+  shape.quadraticCurveTo(-1.69, 0.64, -1.68, 0.54);
+  shape.lineTo(-1.66, 0.25);
+  shape.closePath();
+  const blade = mesh(
+    new THREE.ExtrudeGeometry(shape, {
+      depth: 0.56,
+      bevelEnabled: true,
+      bevelThickness: 0.006,
+      bevelSize: 0.006,
+      bevelSegments: 3,
+      steps: 1,
+    }),
+    polished,
     retractor,
   );
-  mesh(new THREE.BoxGeometry(0.42, 0.5, 0.07), metal, retractor).position.set(
-    -2.03,
-    -0.35,
-    0.72,
+  blade.rotation.x = Math.PI / 2;
+  blade.position.y = 0.21;
+  lineTube(
+    [
+      new THREE.Vector3(-1.88, -0.06, 0.66),
+      new THREE.Vector3(-2.06, -0.15, 0.73),
+      new THREE.Vector3(-2.65, -0.26, 0.77),
+      new THREE.Vector3(-3.2, -0.32, 0.77),
+    ],
+    0.027,
+    polished,
+    retractor,
   );
-  for (const y of [-0.49, -0.23]) {
-    const screw = mesh(
-      new THREE.CylinderGeometry(0.058, 0.058, 0.03, 24),
-      metal,
+  const bridge = mesh(
+    new RoundedBoxGeometry(0.22, 0.3, 0.055, 3, 0.02),
+    polished,
+    retractor,
+  );
+  bridge.position.set(-2.15, -0.17, 0.74);
+  bridge.rotation.z = -0.14;
+  const pivot = mesh(
+    new THREE.CylinderGeometry(0.064, 0.064, 0.055, 40),
+    polished,
+    retractor,
+  );
+  pivot.rotation.x = Math.PI / 2;
+  pivot.position.set(-2.15, -0.17, 0.795);
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2;
+    const notch = mesh(
+      new THREE.BoxGeometry(0.008, 0.012, 0.04),
+      polished,
       retractor,
     );
-    screw.rotation.x = Math.PI / 2;
-    screw.position.set(-2.03, y, 0.77);
-    const slot = mesh(
-      new THREE.BoxGeometry(0.065, 0.011, 0.003),
-      new THREE.MeshBasicMaterial({ color: 0x273435 }),
-      retractor,
+    notch.position.set(
+      -2.15 + Math.cos(a) * 0.064,
+      -0.17 + Math.sin(a) * 0.064,
+      0.797,
     );
-    slot.position.set(-2.03, y, 0.788);
+    notch.rotation.z = a;
   }
+  const slot = mesh(
+    new RoundedBoxGeometry(0.055, 0.009, 0.004, 2, 0.002),
+    new THREE.MeshStandardMaterial({
+      color: 0x263638,
+      metalness: 0.7,
+      roughness: 0.4,
+    }),
+    retractor,
+  );
+  slot.position.set(-2.15, -0.17, 0.825);
 
   const vessels: Vessel[] = [];
   const artery = new THREE.MeshPhysicalMaterial({
-    color: 0x6f1e1d,
-    roughness: 0.28,
-    clearcoat: 0.75,
-    clearcoatRoughness: 0.18,
+    color: 0x8b4540,
+    roughness: 0.52,
+    clearcoat: 0.2,
+    clearcoatRoughness: 0.45,
   });
   const vein = new THREE.MeshPhysicalMaterial({
-    color: 0x3c2630,
-    roughness: 0.3,
-    clearcoat: 0.7,
+    color: 0x514656,
+    roughness: 0.5,
+    clearcoat: 0.18,
   });
   function vessel(
     name: string,
@@ -279,16 +333,46 @@ export function buildField(
       xy.map(([x, y]) => new THREE.Vector3(x, y, 0)),
     );
     const points = curve
-      .getPoints(65)
+      .getPoints(240)
       .map(
-        (p) =>
-          new THREE.Vector3(
-            p.x,
-            p.y,
-            surface(p.x, p.y) + radius * 0.65 + 0.013,
-          ),
+        (p) => new THREE.Vector3(p.x, p.y, surface(p.x, p.y) + radius * 0.22),
       );
-    lineTube(points, radius, material, scene);
+    class AdherentCurve extends THREE.Curve<THREE.Vector3> {
+      constructor() {
+        super();
+      }
+      getPoint(t: number, target = new THREE.Vector3()) {
+        const p = curve.getPoint(t);
+        return target.set(p.x, p.y, surface(p.x, p.y) + radius * 0.22);
+      }
+    }
+    const adhered = new AdherentCurve(),
+      segments = 240,
+      radial = 10;
+    const geometry = new THREE.TubeGeometry(
+        adhered,
+        segments,
+        radius,
+        radial,
+        false,
+      ),
+      positions = geometry.attributes.position;
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments,
+        center = adhered.getPointAt(t),
+        taper = 0.95 - 0.63 * Math.pow(t, 1.5);
+      for (let j = 0; j <= radial; j++) {
+        const k = i * (radial + 1) + j;
+        positions.setXYZ(
+          k,
+          center.x + (positions.getX(k) - center.x) * taper,
+          center.y + (positions.getY(k) - center.y) * taper,
+          center.z + (positions.getZ(k) - center.z) * taper,
+        );
+      }
+    }
+    geometry.computeVertexNormals();
+    mesh(geometry, material, scene);
     vessels.push({ name, points, radius });
   }
   vessel(
@@ -301,7 +385,7 @@ export function buildField(
       [-0.4, 0.45],
       [-0.35, 0.92],
     ],
-    0.024,
+    0.017,
   );
   vessel(
     "cortical branch",
@@ -312,7 +396,7 @@ export function buildField(
       [0.38, 0.18],
       [0.29, 0.57],
     ],
-    0.015,
+    0.011,
   );
   vessel(
     "cortical branch",
@@ -322,7 +406,7 @@ export function buildField(
       [-0.92, 0.5],
       [-1.17, 0.67],
     ],
-    0.014,
+    0.009,
   );
   vessel(
     "cortical vein",
@@ -334,7 +418,7 @@ export function buildField(
       [-0.72, -0.51],
       [-0.61, -0.96],
     ],
-    0.022,
+    0.016,
     vein,
   );
   vessel(

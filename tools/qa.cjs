@@ -1,41 +1,136 @@
-// Hosted-browser regression. Development server required for diagnostic API.
-const fs = require('node:fs');
-fs.mkdirSync('/tmp/suture-qa', {recursive:true});
-const {chromium}=require('playwright');const assert=require('node:assert/strict');
-(async()=>{
- const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
- const page=await browser.newPage({viewport:{width:1672,height:941}}),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text())});
- await page.goto('http://localhost:5173');await page.waitForFunction(()=>window.__SUTURE__?.loaded,null,{timeout:50000});
- await page.screenshot({path:'/tmp/suture-qa/final-room.png'});
- await page.setViewportSize({width:960,height:600});
- await page.getByRole('button',{name:'Enter operating room',exact:true}).click();await page.keyboard.press('Escape');
- await page.waitForFunction(()=>window.__SUTURE__.state.status==='paused');console.log('ROOM_ESCAPE_PASS');
- await page.getByRole('button',{name:'Return to the field',exact:true}).click();
- await page.keyboard.down('w');try{await page.waitForFunction(()=>window.__SUTURE__.room.nearTray,null,{timeout:30000})}finally{await page.keyboard.up('w')}
- await page.keyboard.press('3');await page.waitForTimeout(150);await page.keyboard.press('e');
- await page.waitForFunction(()=>window.__SUTURE__.heldTool==='bipolar');console.log('PICK_SELECTED_TOOL_PASS');
- await page.keyboard.press('1');await page.keyboard.press('e');
- await page.keyboard.down('w');try{await page.waitForFunction(()=>window.__SUTURE__.room.prompt==='Enter surgical view',null,{timeout:35000})}finally{await page.keyboard.up('w')}
- await page.keyboard.press('e');await page.waitForFunction(()=>window.__SUTURE__.location==='surgery');
- await page.evaluate(()=>{const e=window.__SUTURE__;e.target.set(-.9,.3,-.4);e.pause();});
- assert.equal(await page.evaluate(()=>window.__SUTURE__.target.equals(window.__SUTURE__.tip)),true);
- await page.getByRole('button',{name:'Return to the field',exact:true}).click();
- await page.waitForTimeout(700);assert.equal(await page.evaluate(()=>window.__SUTURE__.state.injury),0);console.log('PENDING_MOVEMENT_DISCARDED_PASS');
- await page.evaluate(()=>window.dispatchEvent(new Event('blur')));await page.waitForFunction(()=>window.__SUTURE__.state.status==='paused');
- console.log('BLUR_PAUSE_PASS');
- await page.getByRole('button',{name:'Return to the field',exact:true}).click();
- await page.setViewportSize({width:1672,height:941});await page.waitForTimeout(1000);await page.screenshot({path:'/tmp/suture-qa/final-surgery.png'});
- await page.setViewportSize({width:720,height:480});
- await page.evaluate(()=>{const e=window.__SUTURE__;e.setQuality('balanced');e.target.set(-1.1,-.2,.8);});
- const t=await page.evaluate(()=>window.__SUTURE__.state.elapsed);await page.waitForFunction(t=>window.__SUTURE__.state.elapsed>t+.2,t);
- await page.evaluate(()=>{const e=window.__SUTURE__;e.target.z=e.surface(-1.1,-.2)-.12;});
- await page.waitForFunction(()=>window.__SUTURE__.state.status==='failed',null,{timeout:30000});
- await page.screenshot({path:'/tmp/suture-qa/failure.png'});
- console.log('FAILURE',await page.evaluate(()=>({status:window.__SUTURE__.state.status,events:window.__SUTURE__.state.events.filter(x=>x.type==='failure')})));
- await page.getByRole('button',{name:'Try again',exact:true}).click();await page.waitForFunction(()=>window.__SUTURE__.state.status==='running');
- assert.equal(await page.evaluate(()=>window.__SUTURE__.state.injury),0);console.log('RETRY_PASS');
- await page.setViewportSize({width:390,height:844});await page.waitForFunction(()=>window.__SUTURE__.state.status==='paused');
- assert.equal(await page.locator('.small-screen').isVisible(),true);assert.equal(await page.evaluate(()=>document.body.scrollWidth<=390),true);
- await page.screenshot({path:'/tmp/suture-qa/mobile.png'});console.log('PORTRAIT_SAFE_PAUSE_PASS');
- console.log('ERRORS',JSON.stringify(errors));assert.equal(errors.length,0);await browser.close();
-})().catch(e=>{console.error(e);process.exit(1)});
+// Browser interaction regression: no simulation mutations or diagnostic API.
+const { chromium } = require("playwright");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+fs.mkdirSync("/tmp/suture-qa", { recursive: true });
+(async () => {
+  const browser = await chromium.launch({
+    executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--use-angle=swiftshader",
+      "--enable-unsafe-swiftshader",
+    ],
+  });
+  const page = await browser.newPage({
+    viewport: { width: 960, height: 640 },
+  });
+  const errors = [];
+  const target = process.argv[2] || "http://localhost:5173";
+  page.on("response", (response) => {
+    if (!response.ok()) errors.push(`${response.status()} ${response.url()}`);
+  });
+  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("console", (m) => {
+    if (m.type() === "error") errors.push(m.text());
+  });
+  try {
+    await page.goto(target);
+    await page
+      .getByRole("button", { name: "Start surgery", exact: true })
+      .waitFor({ timeout: 60000 });
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("combobox").selectOption("balanced");
+    await page.getByRole("button", { name: "Back", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Start surgery", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Pick up Bone burr", exact: true })
+      .click();
+    await page.locator(".bone-guide line").first().waitFor();
+    assert.equal(await page.title(), "SUTURE — Surgical simulation");
+    assert.equal(await page.locator("vite-error-overlay").count(), 0);
+    await page.screenshot({ path: "/tmp/suture-qa/bone.png" });
+    let points = await page.locator(".bone-guide line").evaluateAll((lines) =>
+      lines.map((l) => ({
+        x: +l.getAttribute("x1"),
+        y: +l.getAttribute("y1"),
+      })),
+    );
+    console.log("Cutting", points.length, "guide points");
+    await page.mouse.move(points[0].x, points[0].y);
+    await page.mouse.down();
+    for (let i = 0; i < points.length; i++) {
+      await page.mouse.move(points[i].x, points[i].y, { steps: 3 });
+      await page.waitForFunction(
+        (i) =>
+          document
+            .querySelectorAll(".bone-guide line")
+            [i]?.classList.contains("done"),
+        i,
+        { timeout: 10000 },
+      );
+      if (i === 30)
+        await page.screenshot({ path: "/tmp/suture-qa/carved.png" });
+      if (i % 20 === 0) console.log("Cut point", i);
+    }
+    await page.mouse.up();
+    await page.getByRole("button", { name: "Lift bone flap" }).click();
+    await page
+      .getByRole("button", { name: /Place Bone burr/ })
+      .waitFor({ timeout: 60000 });
+    assert.ok(
+      await page
+        .getByRole("button", { name: "Pick up Suction", exact: true })
+        .isDisabled(),
+    );
+    await page.getByRole("button", { name: /Place Bone burr/ }).click();
+    await page
+      .getByRole("button", { name: "Pick up Suction", exact: true })
+      .click();
+    await page.locator(".target-marker").first().waitFor();
+    await page.screenshot({ path: "/tmp/suture-qa/exposed.png" });
+    for (let i = 0; i < 4; i++) {
+      const marker = page.locator(".target-marker").nth(i);
+      const box = await marker.boundingBox();
+      await page.mouse.move(box.x + 13.5, box.y + 13.5);
+      await page.mouse.down();
+      await marker.waitFor({ state: "visible" });
+      await page.waitForFunction(
+        (i) =>
+          document
+            .querySelectorAll(".target-marker")
+            [i]?.classList.contains("cleared"),
+        i,
+        { timeout: 60000 },
+      );
+      await page.mouse.up();
+      console.log("Cleared", i + 1);
+    }
+    await page
+      .getByRole("heading", { name: "Rinse the field", exact: true })
+      .waitFor();
+    await page.getByRole("button", { name: /Instrument tray/ }).click();
+    await page.getByRole("button", { name: /Place Suction/ }).click();
+    await page
+      .getByRole("button", { name: "Pick up Irrigation", exact: true })
+      .click();
+    await page.locator(".target-marker").first().waitFor();
+    await page.mouse.move(480, 320);
+    await page.mouse.down();
+    await page
+      .getByRole("heading", { name: "Release to inspect", exact: true })
+      .waitFor({ timeout: 60000 });
+    await page.mouse.up();
+    await page
+      .getByRole("heading", { name: "A controlled finish.", exact: true })
+      .waitFor({ timeout: 60000 });
+    await page.screenshot({ path: "/tmp/suture-qa/result.png" });
+    assert.deepEqual(errors, []);
+    console.log(
+      "PASS full workflow",
+      await page.locator(".result-stats").innerText(),
+    );
+  } catch (e) {
+    console.log("Failure screen:", await page.locator("main").innerText());
+    await page.screenshot({ path: "/tmp/suture-qa/flow-failure.png" });
+    throw e;
+  } finally {
+    await browser.close();
+  }
+})().catch((e) => {
+  console.error(e);
+  process.exitCode = 1;
+});

@@ -42,12 +42,13 @@ prepared branch, change Pages' source to **GitHub Actions**, then run it from th
 
 ```sh
 VITE_BASE_PATH=/Surgery-Simulator/ npm run build
-VITE_BASE_PATH=/Surgery-Simulator/ npm run preview
-node tools/qa-hosting.cjs http://localhost:4173/Surgery-Simulator/
+VITE_BASE_PATH=/Surgery-Simulator/ npm run preview -- --port 4174
+node tools/qa-hosting.cjs http://localhost:4174/Surgery-Simulator/
 ```
 
-The browser smoke check loads all runtime assets, collects an instrument, and
-enters surgery using visible controls without the development diagnostic API.
+The browser regression loads the production subpath and uses visible controls
+to cut the bone path, lift the flap, clear the fluid pockets, rinse and finish.
+No development diagnostic API is required.
 It uses local Chromium (override `CHROMIUM_PATH` when needed).
 
 Model, texture, font, CSS, and favicon URLs support the repository subpath.

@@ -1,52 +1,56 @@
 # Suture
 
-A first-person surgical game prototype: prepare in a compact operating room, collect an instrument, and enter a stable close surgical view. The initial prepared-field exercise supports suction, irrigation, localized bleeding control, injury, guided assistance, checkpoints, and a session debrief.
+A browser surgical game with a walkable operating room and a complete guided procedure: pick up tools from a physical tray, carve a bone window, lift the flap, clear fluid, rinse, and inspect.
 
-**Run locally**
+Play address: **https://losttnt.github.io/Surgery-Simulator/** (GitHub Pages must be enabled for the repository; see [deployment](DEPLOYMENT.md)).
 
 ```sh
-npm install
+npm ci
 npm run dev
 ```
 
-The development server listens on `0.0.0.0:5173`. In a restricted hosted workspace, use `npm install --cache /tmp/suture-npm-cache` if the default home cache is unavailable.
+Requires Node 24 and a WebGL 2 browser. There is no backend or API key.
+
+## Controls
+
+- **Aim and hold:** point directly at the field; hold the left mouse button or touch and hold to operate. The burr removes actual bone geometry. Follow the dotted cutting path, then click **Lift bone flap** or press **E**.
+- **Assisted depth:** follows the current 3D surface and lifts on release. Scroll down/up to trim depth. Click Reset depth trim to restore it.
+- **Manual depth:** press **Q** or use Settings. Scroll or **F/R** lower/raise the tool. **Shift** slows the hand. Full shaft and tissue collisions apply in manual mode.
+- **Tools and tray:** **T** pans between the patient and a nearby sterile tray. You hold one tool at a time. Place the current tool on the tray (click **Place**, press **E**, or click the tray surface), then click a physical instrument or its label to pick it up. At the tray, **1/2/3/4** pick up burr/suction/irrigation/bipolar when your hand is free. The camera returns to the field after pickup. Clear the numbered pockets, rinse, then release for inspection. Bipolar on healthy tissue causes injury.
+- **Room:** **WASD** walks, mouse looks after clicking the field, **E** collects an instrument or enters the microscope. Drag-look and arrow keys are available when pointer capture is unavailable. Start surgery skips the room; Explore operating room preserves exploration.
+- **Escape/P:** pause. Focus loss also pauses and releases the instrument. **+/−** adjust the microscope zoom.
+
+The game includes local best scores, stage retries, help, optional target guides, sound, fullscreen and graphics settings. High adds ambient occlusion and soft shadows; slow devices automatically switch to Balanced. Graphics can also be selected explicitly.
+
+## Development and verification
 
 ```sh
 npm test
 npm run build
-npm run preview
+npm run qa
 ```
 
-Hosted browser regressions (with the development server running): `npm run qa` and `npm run qa:completion`. See [verification and remaining work](QA.md).
+For production subpath testing:
 
-For free GitHub Pages hosting, see [deployment setup](DEPLOYMENT.md).
+```sh
+VITE_BASE_PATH=/Surgery-Simulator/ npm run build
+VITE_BASE_PATH=/Surgery-Simulator/ npm run preview -- --port 4174
+node tools/qa-hosting.cjs http://localhost:4174/Surgery-Simulator/
+```
 
-**Controls**
+The browser checks use local Chromium and real visible controls, including cutting, lifting, tool returns/handoffs, suction, rinsing and the result screen. See [QA](QA.md) for limits and [design](DESIGN.md) for references and deliberate 3D adaptations.
 
-- Room: WASD to walk, mouse to look, E to collect a tool or enter the microscope. Click the field to capture the pointer; drag-look and arrow keys are available when pointer capture is unavailable.
-- At the tray: 1 / 2 / 3 select suction, irrigation, or bipolar; E picks up the selected instrument.
-- Surgical view: move the mouse to position the tool; scroll down to lower and up to withdraw. R raises and F lowers. Shift reduces movement/depth increments. Hold the left mouse button to operate.
-- H toggles guided anatomy hints; + / − adjust zoom; Escape / P pause. Switching tools represents an assisted handoff in the surgical view.
-- Pause, focus loss, tool changes, and camera changes release activation and discard pending instrument movement.
+## Implementation
 
-**Current scope**
+- `src/game/tool-tray.ts`: physical tray, instrument slots and 3D picking.
+- `src/game/bone-cut.ts`, `access.ts`: local material removal, flap, burr and debris.
+- `src/game/soft-tissue.ts`: localized damped tissue deformation.
+- `src/game/materials.ts`: physical tissue material and wrap-light shader.
+- `src/game/engine.ts`: scene, input, rendering, camera, state publication.
+- `src/game/simulation.ts`, `collision.ts`: objectives, injury, bleeding, swept collisions and checkpoints.
+- `src/game/room.ts`, `scene.ts`: room and operating field.
+- `src/App.tsx`, `src/ui/GameHud.tsx`: menus and live game controls.
 
-This is an interaction prototype, not a validated medical training product. The case is fictional and begins in a prepared exposure; access, anaesthesia, full fluid/tissue mechanics, and closure are omitted. The instrument lab and introductory case share the core interaction system. Intermediate and additional procedures remain future work.
+The procedure, anatomy, patient monitoring and material response are simplified game mechanics. This is not a medical training product. Skin access, anaesthesia, dura dissection, closure and full tissue resection are omitted.
 
-The room, anatomy, lighting, materials, and instrument handling need further production art and player iteration. Hosted software-rendered Chromium can test flow and capture evidence, but cannot establish GPU performance or novice enjoyment. Clinical review and human playtesting remain outstanding.
-
-The atlas-derived surface is a modified FreeSurfer fsaverage5 average reference obtained through Nilearn. Its distribution follows FreeSurfer's software/data license, with the required notice, modification statement, and Nilearn attribution included. See [asset provenance and the documented upstream distribution](public/ASSETS.md) and the [applicable FreeSurfer terms](public/licenses/FREESURFER.txt). The surrounding anatomy, vessels, fluid representation, and instrument shapes are simplified game assets.
-
-**Project layout**
-
-- `src/game/simulation.ts`: case state, objective progression, injury/bleeding, results, checkpoints.
-- `src/game/collision.ts`: tool-specific capsule chains and swept contact helpers.
-- `src/game/engine.ts`: scene lifecycle, rendering, input, snapshots, preparation/surgery transitions.
-- `src/game/room.ts`: operating room, navigation, proximity/looking interactions, held instruments.
-- `src/game/scene.ts`: prepared exposure, vessels, fluid layers, guidance markers.
-- `src/App.tsx` and `src/style.css`: sparse game HUD and in-game menus.
-- `tests/`: meaningful simulation/collision regressions.
-- `tools/`: reproducible atlas preparation and original Blender instrument authoring.
-- [Build plan](GAME_PLAN.md) and [active visual direction](DESIGN.md).
-
-Source assets for rebuilding the anatomy are described in `public/ASSETS.md`. The preprocessing scripts expect the reference GIFTI files in `/tmp`, then run `python tools/prepare_surface.py` followed by `blender --background --python tools/build_assets.py`. Included runtime GLBs do not require Blender to play.
+The modified atlas mesh derives from FreeSurfer fsaverage5 through Nilearn. Required notices and modification details remain in [asset provenance](public/ASSETS.md) and [FreeSurfer terms](public/licenses/FREESURFER.txt).

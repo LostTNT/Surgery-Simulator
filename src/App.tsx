@@ -1,18 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Engine, type Snapshot } from "./game/engine";
-import {
-  CASES,
-  TOOLS,
-  STAGES,
-  createState,
-  fluidProgress,
-  score,
-  type CaseId,
-  type Tool,
-} from "./game/simulation";
+import { CASES, createState, score, type CaseId } from "./game/simulation";
+import { GameHud } from "./ui/GameHud";
 import { Icon } from "./ui/Icons";
 
-const tools: Tool[] = ["suction", "irrigation", "bipolar"];
+type Overlay = "none" | "cases" | "guide" | "settings";
 const initial: Snapshot = {
   ...createState(),
   loaded: false,
@@ -22,18 +14,17 @@ const initial: Snapshot = {
   roomPrompt: "",
   heldTool: null,
   nearTray: false,
+  depthAssist: true,
+  depthOffset: 0,
+  targets: [],
+  accessPhase: "bone",
+  cutProgress: 0,
+  cutGuide: [],
+  roomWaypoint: null,
+  trayView: false,
+  cameraMoving: false,
+  traySlots: [],
 };
-type Overlay = "none" | "cases" | "guide" | "settings";
-function savedProgress(): Partial<Record<CaseId, number>> {
-  try {
-    const value = JSON.parse(
-      localStorage.getItem("suture.progress.v1") ?? "{}",
-    );
-    return value && typeof value === "object" ? value : {};
-  } catch {
-    return {};
-  }
-}
 function clock(t: number) {
   return `${Math.floor(t / 60)
     .toString()
@@ -41,26 +32,51 @@ function clock(t: number) {
     .toString()
     .padStart(2, "0")}`;
 }
+function savedProgress(): Partial<Record<CaseId, number>> {
+  try {
+    const value = JSON.parse(
+      localStorage.getItem("suture.progress.v2") ?? "{}",
+    );
+    return Object.fromEntries(
+      Object.entries(value ?? {}).filter(
+        ([key, n]) =>
+          key in CASES &&
+          typeof n === "number" &&
+          Number.isFinite(n) &&
+          n >= 0 &&
+          n <= 100,
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
 
 export default function App() {
   const field = useRef<HTMLDivElement>(null),
-    engine = useRef<Engine | null>(null);
+    engine = useRef<Engine | null>(null),
+    resumeAfterMenu = useRef(false);
   const [view, setView] = useState<Snapshot>(initial),
-    [overlay, setOverlay] = useState<Overlay>("none");
-  const [progress, setProgress] = useState(savedProgress),
-    [fullscreen, setFullscreen] = useState(false);
-  const [selected, setSelected] = useState<CaseId>("lab");
-  useEffect(() => {
-    if (engine.current)
-      engine.current.onPauseRequest = () => {
-        if (overlay !== "none") {
-          setOverlay("none");
-          return;
-        }
-        if (view.status === "running") engine.current?.pause();
-        else if (view.status === "paused") engine.current?.resume();
-      };
-  }, [overlay, view.status]);
+    [overlay, setOverlay] = useState<Overlay>("none"),
+    [progress, setProgress] = useState(savedProgress),
+    [selected, setSelected] = useState<CaseId>("lab");
+  const playing = view.status === "running",
+    ready = view.status === "ready",
+    paused = view.status === "paused",
+    result = view.status === "success" || view.status === "failed",
+    failed = view.status === "failed";
+  const menuOpen = overlay !== "none" || !playing;
+  const caseInfo = CASES[view.caseId];
+  function close() {
+    setOverlay("none");
+    if (resumeAfterMenu.current) engine.current?.resume();
+    resumeAfterMenu.current = false;
+  }
+  function open(which: Overlay) {
+    if (overlay === "none") resumeAfterMenu.current = playing;
+    engine.current?.pause();
+    setOverlay(which);
+  }
   useEffect(() => {
     if (!field.current) return;
     try {
@@ -79,73 +95,61 @@ export default function App() {
     }
   }, []);
   useEffect(() => {
+    if (engine.current)
+      engine.current.onPauseRequest = () => {
+        if (overlay !== "none") close();
+        else if (playing) engine.current?.pause();
+        else if (paused) engine.current?.resume();
+      };
+  });
+  useEffect(() => {
     if (view.status !== "success") return;
-    const result = score(view);
     setProgress((old) => {
       const next = {
         ...old,
-        [view.caseId]: Math.max(old[view.caseId] ?? 0, result),
+        [view.caseId]: Math.max(old[view.caseId] ?? 0, score(view)),
       };
       try {
-        localStorage.setItem("suture.progress.v1", JSON.stringify(next));
+        localStorage.setItem("suture.progress.v2", JSON.stringify(next));
       } catch {
-        /* Progress remains available for this session. */
+        /* Session still works without storage. */
       }
       return next;
     });
   }, [view.status, view.caseId]);
-  useEffect(() => {
-    const onFull = () => setFullscreen(Boolean(document.fullscreenElement));
-    document.addEventListener("fullscreenchange", onFull);
-    return () => document.removeEventListener("fullscreenchange", onFull);
-  }, []);
-  function open(which: Overlay) {
-    engine.current?.pause();
-    setOverlay(which);
-  }
-  function close() {
-    setOverlay("none");
-  }
-  function selectCase() {
-    engine.current?.setCase(selected);
-    setOverlay("none");
-  }
-  async function full() {
+  async function fullscreen() {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
       else await document.documentElement.requestFullscreen();
     } catch {
-      /* Browser may disable fullscreen in an embedded preview. */
+      /* Embedded previews may disallow fullscreen. */
     }
   }
-  const playing = view.status === "running",
-    ready = view.status === "ready",
-    paused = view.status === "paused";
-  const result = view.status === "success" || view.status === "failed";
-  const menuOpen =
-    overlay !== "none" ||
-    ready ||
-    paused ||
-    result ||
-    Boolean(view.error) ||
-    !view.loaded;
-  const objective = STAGES[Math.min(view.stage, 2)],
-    caseInfo = CASES[view.caseId];
-  const progressValue =
-    view.stage === 0
-      ? 0
-      : view.stage === 1
-        ? fluidProgress(view)
-        : view.clarity;
-  const failed = view.status === "failed";
-  const inRoom = view.location === "room";
+  function chooseCase() {
+    engine.current?.setCase(selected);
+    resumeAfterMenu.current = false;
+    setOverlay("none");
+  }
+  const title =
+    overlay === "guide"
+      ? "How to play"
+      : overlay === "settings"
+        ? "Make it your own."
+        : overlay === "cases"
+          ? "Choose your next case."
+          : failed
+            ? "Take a breath. Try again."
+            : result
+              ? "A controlled finish."
+              : paused
+                ? "Take your time."
+                : caseInfo.name;
   return (
     <main
-      className={`game ${menuOpen ? "has-menu" : ""} ${playing ? "is-playing" : ""} ${inRoom ? "in-room" : ""}`}
+      className={`game ${menuOpen ? "has-menu" : "is-playing"} ${view.location === "room" ? "in-room" : ""}`}
     >
       <div ref={field} className="operative-field" />
       <div className="lens-shade" aria-hidden="true" />
-      <div className="film-grain" aria-hidden="true" />
       <header className="hud-top">
         <div className="identity">
           <button
@@ -155,636 +159,416 @@ export default function App() {
           >
             SUTURE
           </button>
-          <span className="identity-divider" />
-          <span className="case-name">
-            {inRoom ? "Preparation" : caseInfo.name}
+          <i />
+          <span>
+            {view.location === "room" ? "Operating room" : caseInfo.label}
           </span>
         </div>
         <div className="utilities">
           <button
-            className="icon-button sound"
+            className="icon-button"
             onClick={() => engine.current?.toggleSound()}
             aria-label={view.sound ? "Mute audio" : "Enable audio"}
-            title={view.sound ? "Mute audio" : "Enable audio"}
           >
             <Icon name={view.sound ? "sound" : "mute"} />
           </button>
-          <span className="elapsed" aria-label="Elapsed time">
-            {clock(view.elapsed)}
-          </span>
-          <span className="utility-divider" />
+          <time>{clock(view.elapsed)}</time>
           <button
             className="pause-button"
-            onClick={() => {
-              if (playing) engine.current?.pause();
-              else if (paused && overlay === "none") engine.current?.resume();
-            }}
-            aria-label={playing ? "Pause operation" : "Resume operation"}
-            disabled={ready || result}
+            disabled={overlay !== "none" || (!playing && !paused)}
+            onClick={() =>
+              playing ? engine.current?.pause() : engine.current?.resume()
+            }
           >
-            <Icon name="pause" size={16} />
-            <span>ESC</span>
+            <Icon name="pause" size={15} />
+            <span>{playing ? "Pause" : "Resume"}</span>
           </button>
         </div>
       </header>
-
       {!menuOpen && (
-        <>
-          <section className="objective" aria-live="polite">
-            <div className="objective-step">
-              {inRoom ? "PREPARATION" : `0${view.stage + 1}`}
-              <span>{inRoom ? caseInfo.label.toUpperCase() : "/ 03"}</span>
-              {view.guided && <span className="guided-mark">GUIDED</span>}
-            </div>
-            <h1>
-              {inRoom
-                ? view.heldTool
-                  ? "Approach the microscope"
-                  : "Prepare your station"
-                : objective.title}
-            </h1>
-            {view.guided && (
-              <p>
-                {inRoom
-                  ? view.heldTool
-                    ? "Go to the patient’s head. Press E to enter the surgical view."
-                    : "Collect an instrument from the sterile tray to your right."
-                  : objective.detail}
-              </p>
-            )}
-            {!inRoom && (
-              <div className="objective-line">
-                <span style={{ width: `${progressValue * 100}%` }} />
-              </div>
-            )}
-          </section>
-          {inRoom && (
-            <>
-              <div className="room-crosshair" aria-hidden="true" />
-              {view.roomPrompt && (
-                <div className="room-interaction">
-                  <kbd>E</kbd>
-                  <span>{view.roomPrompt}</span>
-                  {view.nearTray && (
-                    <small>1 / 2 / 3 · choose instrument</small>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-          {!inRoom && view.guided && (
-            <div
-              className={`depth-ruler ${view.clearance < 0.035 ? "near-tissue" : ""}`}
-              aria-label={`Tip clearance ${(view.clearance * 25).toFixed(1)} millimeters`}
-            >
-              <span className="depth-title">TIP CLEARANCE</span>
-              <div className="ruler-track">
-                {[20, 15, 10, 5, 0].map((n) => (
-                  <span key={n} style={{ top: `${(20 - n) * 5}%` }}>
-                    <i />
-                    {n}
-                  </span>
-                ))}
-                <b
-                  style={{
-                    top: `${Math.max(0, Math.min(100, (20 - view.clearance * 25) * 5))}%`,
-                  }}
-                />
-              </div>
-              <strong>
-                {(view.clearance * 25).toFixed(1)}
-                <small> mm</small>
-              </strong>
-            </div>
-          )}
-          {!inRoom && (
-            <div
-              className={`field-feedback ${view.feedback.kind}`}
-              aria-live="polite"
-            >
-              <span className="feedback-dot" />
-              <div>
-                <strong>{view.feedback.title}</strong>
-                {view.guided && <p>{view.feedback.detail}</p>}
-              </div>
-            </div>
-          )}
-          {!inRoom && view.guided && view.showAnatomy && (
-            <div className="anatomy-key">
-              <span>
-                <i className="tissue-dot" />
-                Cortical surface
-              </span>
-              <span>
-                <i className="vessel-dot" />
-                Vulnerable vessel
-              </span>
-              <span>
-                <i className="collection-dot" />
-                Extra-axial fluid
-              </span>
-            </div>
-          )}
-        </>
+        <GameHud
+          view={view}
+          onTool={(tool) => engine.current?.selectTool(tool)}
+          onHelp={() => open("guide")}
+          onDepth={() =>
+            engine.current?.setDepthAssist(
+              Math.abs(view.depthOffset) > 0.005 ? true : !view.depthAssist,
+            )
+          }
+          onTray={() => engine.current?.toggleTray()}
+          onPlace={() => engine.current?.placeTool()}
+          onLift={() => engine.current?.liftBone()}
+          onInteract={() => engine.current?.interactRoom()}
+          onSkip={() => engine.current?.startSurgery()}
+        />
       )}
-
-      <footer className="hud-bottom">
-        <div className="control-hints">
-          {inRoom ? (
-            <>
-              <div>
-                <kbd>WASD</kbd>
-                <span>Move</span>
-              </div>
-              <div>
-                <kbd>MOUSE</kbd>
-                <span>Look · click field to capture</span>
-              </div>
-              <div>
-                <kbd>E</kbd>
-                <span>Interact</span>
-              </div>
-            </>
-          ) : (
-            <>
-              <div>
-                <kbd>MOVE</kbd>
-                <span>Position instrument</span>
-              </div>
-              <div>
-                <kbd>SCROLL</kbd>
-                <span>Adjust depth</span>
-              </div>
-              <div>
-                <kbd>SHIFT</kbd>
-                <span>Precision movement</span>
-              </div>
-            </>
-          )}
-          <button onClick={() => open("guide")}>
-            <kbd>?</kbd>
-            <span>Field guide</span>
-          </button>
-        </div>
-        {(!inRoom || view.nearTray) && (
-          <div className="instrument-area">
-            <div className={`action-prompt ${view.action ? "active" : ""}`}>
-              {inRoom ? (
-                <span>SELECT AN INSTRUMENT · E TO COLLECT</span>
-              ) : view.action ? (
-                <>
-                  <span className="action-dot" />
-                  {TOOLS[view.tool].action}
-                </>
-              ) : (
-                <>
-                  <span>Hold</span>
-                  <kbd>LMB</kbd>
-                  <span>to operate</span>
-                </>
-              )}
-            </div>
-            <div className="instrument-tray" aria-label="Instrument selection">
-              {tools.map((tool, i) => (
-                <button
-                  key={tool}
-                  className={`instrument ${view.tool === tool ? "selected" : ""}`}
-                  onClick={() => engine.current?.selectTool(tool)}
-                  disabled={!view.loaded}
-                  aria-pressed={view.tool === tool}
-                  aria-label={`Select ${TOOLS[tool].name}`}
-                  title={TOOLS[tool].purpose}
-                >
-                  <span className="instrument-label">
-                    <kbd>{i + 1}</kbd>
-                    {TOOLS[tool].name}
-                  </span>
-                  <span
-                    className={`instrument-art instrument-${i}`}
-                    aria-hidden="true"
-                  />
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        {inRoom ? (
-          <div className="held-instrument">
-            <span>{view.heldTool ? "IN HAND" : "HANDS FREE"}</span>
-            <strong>{view.heldTool ? TOOLS[view.heldTool].name : ""}</strong>
-          </div>
-        ) : (
-          <div
-            className={`vitals ${!playing ? "at-rest" : ""}`}
-            aria-label="Patient monitoring"
-          >
-            <div>
-              <span>HR</span>
-              <strong>{view.bleeding > 0.6 ? 86 : 72}</strong>
-              <svg viewBox="0 0 120 30" aria-hidden="true">
-                <path
-                  className="ecg"
-                  d="M0 18h17l3-3 3 3h8l3-5 3 5 3-16 3 27 3-13 3 2h15l4-4 4 4h10l3-3 3 3h16l3-2 3 2h16"
-                />
-              </svg>
-            </div>
-            <div>
-              <span>SpO₂</span>
-              <strong>
-                99<small>%</small>
-              </strong>
-              <svg viewBox="0 0 120 30" aria-hidden="true">
-                <path d="M0 20q9 0 13-9t13 9 15-9 13 9 15-9 13 9 15-9 13 9" />
-              </svg>
-            </div>
-            <span
-              className={`field-condition ${view.bleeding > 0.02 ? "warning" : ""}`}
-            >
-              {failed
-                ? "FIELD COMPROMISED"
-                : view.bleeding > 0.02
-                  ? "BLEEDING SOURCE ACTIVE"
-                  : "SINUS RHYTHM"}
-            </span>
-          </div>
-        )}
-      </footer>
-
       {menuOpen && <div className="menu-scrim" />}
       {!view.loaded && !view.error && (
-        <section className="loading-screen">
+        <div className="loading-screen" role="status">
           <span className="loading-ring" />
-          <p>Preparing the operating field</p>
-          <span>Loading anatomy and instruments</span>
-        </section>
+          <h1>Preparing your station</h1>
+          <p>Loading the room, anatomy and instruments…</p>
+        </div>
       )}
       {view.error && (
-        <section className="menu-panel">
-          <div className="menu-eyebrow">OPERATING FIELD UNAVAILABLE</div>
+        <section className="menu-panel" role="alert">
           <h1>Unable to prepare the field.</h1>
-          <p className="menu-description">{view.error}</p>
-          <p className="menu-description">
-            This game needs a desktop browser with WebGL 2 enabled.
-          </p>
+          <p>{view.error}</p>
+          <p>Try a browser with WebGL 2 enabled.</p>
           <button className="primary-button" onClick={() => location.reload()}>
             Try again
             <Icon name="arrow" />
           </button>
         </section>
       )}
-
-      {view.loaded && !view.error && overlay === "none" && ready && (
-        <section className="menu-panel ready-panel">
-          <div className="menu-eyebrow">
-            {caseInfo.label.toUpperCase()}
-            <span> / </span>
-            {caseInfo.difficulty.toUpperCase()}
-          </div>
-          <h1>{caseInfo.name}</h1>
-          <p className="menu-description">{caseInfo.brief}</p>
-          <div className="brief-objectives">
-            <span>
-              01<span>Collect your instruments</span>
-            </span>
-            <span>
-              02<span>Approach the microscope</span>
-            </span>
-            <span>
-              03<span>Enter the surgical field</span>
-            </span>
-          </div>
-          <label className="toggle-row">
-            <input
-              type="checkbox"
-              checked={view.guided}
-              onChange={(e) => engine.current?.setGuided(e.target.checked)}
-            />
-            <span className="toggle-switch" />
-            <span>
-              <strong>Guided assistance</strong>
-              <small>Depth cues, contextual guidance and stage retries.</small>
-            </span>
-          </label>
-          <button
-            className="primary-button"
-            onClick={() => engine.current?.start()}
-          >
-            Enter operating room
-            <Icon name="arrow" />
-          </button>
-          <div className="menu-links">
-            <button onClick={() => open("cases")}>Case files</button>
-            <button onClick={() => open("guide")}>
-              Controls & field guide
-            </button>
-          </div>
-        </section>
-      )}
-      {view.loaded && overlay === "none" && paused && (
-        <section className="menu-panel pause-panel">
-          <div className="menu-eyebrow">
-            {caseInfo.name.toUpperCase()}
-            <span> / </span>
-            {clock(view.elapsed)}
-          </div>
-          <h1>{inRoom ? "Preparation paused." : "Operation paused."}</h1>
-          <p className="menu-description">The field is held. Take your time.</p>
-          <button
-            className="primary-button"
-            onClick={() => engine.current?.resume()}
-          >
-            Return to the field
-            <Icon name="arrow" />
-          </button>
-          <div className="pause-options">
-            {view.guided && !inRoom && (
-              <button onClick={() => engine.current?.restart(true)}>
-                Retry this stage<span>Restore the stage checkpoint</span>
-              </button>
-            )}
-            <button onClick={() => engine.current?.restart()}>
-              Restart preparation
-            </button>
-            <button onClick={() => open("cases")}>Case files</button>
-            <button onClick={() => open("guide")}>Field guide</button>
-            <button onClick={() => open("settings")}>Settings</button>
-          </div>
-        </section>
-      )}
-      {overlay === "cases" && (
-        <section className="menu-panel case-panel">
-          <button className="back-button" onClick={close}>
-            <Icon name="arrow" size={15} />
-            Back
-          </button>
-          <div className="menu-eyebrow">PROCEDURES & PRACTICE</div>
-          <h1>Case files</h1>
-          <div className="case-list">
-            {(Object.keys(CASES) as CaseId[]).map((id, i) => {
-              const locked = id === "case02";
-              return (
-                <button
-                  key={id}
-                  className={`case-row ${selected === id ? "chosen" : ""}`}
-                  disabled={locked}
-                  onClick={() => setSelected(id)}
-                >
-                  <span className="case-index">
-                    {String(i).padStart(2, "0")}
-                  </span>
-                  <span>
-                    <strong>{CASES[id].name}</strong>
-                    <small>
-                      {CASES[id].difficulty} / {CASES[id].duration}
-                    </small>
-                  </span>
-                  {locked ? (
-                    <Icon name="lock" size={16} />
-                  ) : progress[id] !== undefined ? (
-                    <span className="case-score">
-                      {progress[id]}
-                      <Icon name="check" size={14} />
-                    </span>
-                  ) : (
-                    <span className="case-radio" />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          <p className="case-detail">{CASES[selected].brief}</p>
-          <button className="primary-button" onClick={selectCase}>
-            Prepare selected case
-            <Icon name="arrow" />
-          </button>
-          <p className="menu-footnote">
-            The intermediate case and more procedures will follow after the
-            first case is refined.
-          </p>
-        </section>
-      )}
-      {overlay === "guide" && (
-        <section className="menu-panel guide-panel">
-          <button className="back-button" onClick={close}>
-            <Icon name="arrow" size={15} />
-            Back
-          </button>
-          <div className="menu-eyebrow">FIELD GUIDE</div>
-          <h1>Every movement matters.</h1>
-          <div className="guide-controls">
-            <div>
-              <kbd>WASD</kbd>
-              <span>
-                Walk around the room. Move the mouse to look; arrow keys also
-                look.
-              </span>
-            </div>
-            <div>
-              <kbd>E</kbd>
-              <span>
-                Collect a selected tool at the tray, then enter the microscope
-                near the patient’s head.
-              </span>
-            </div>
-            <div>
-              <kbd>MOVE</kbd>
-              <span>
-                In the surgical view, move the instrument laterally. Its tip
-                remains your reference.
-              </span>
-            </div>
-            <div>
-              <kbd>SCROLL</kbd>
-              <span>
-                Down lowers the tip; up withdraws. R / F also raise / lower.
-              </span>
-            </div>
-            <div>
-              <kbd>SHIFT</kbd>
-              <span>Hold for finer motion and smaller depth increments.</span>
-            </div>
-            <div>
-              <kbd>LMB</kbd>
-              <span>Hold to operate. Release before repositioning.</span>
-            </div>
-            <div>
-              <kbd>1 2 3</kbd>
-              <span>
-                Select suction, irrigation or bipolar. In the room, approach the
-                tray first.
-              </span>
-            </div>
-            <div>
-              <kbd>H</kbd>
-              <span>Toggle anatomy hints in guided mode.</span>
-            </div>
-            <div>
-              <kbd>+ −</kbd>
-              <span>Adjust microscope zoom.</span>
-            </div>
-            <div>
-              <kbd>ESC</kbd>
-              <span>
-                Pause. Losing window focus also pauses. Click the field to
-                recapture the mouse.
-              </span>
-            </div>
-          </div>
-          <div className="guide-note">
-            <strong>Understand the sequence.</strong>
-            <p>
-              Approach a dark fluid pocket, lower to working depth, and use
-              suction. Clear each pocket, then irrigate until the field is
-              clear. Release the instrument for the final inspection.
-            </p>
-            <p>
-              Tissue and vessel contact can cause lasting injury. A localized
-              bleed can be treated with bipolar. Sustained contact or
-              uncontrolled bleeding can end the attempt.
-            </p>
-          </div>
-        </section>
-      )}
-      {overlay === "settings" && (
-        <section className="menu-panel">
-          <button className="back-button" onClick={close}>
-            <Icon name="arrow" size={15} />
-            Back
-          </button>
-          <div className="menu-eyebrow">PREFERENCES</div>
-          <h1>Set your field.</h1>
-          <label className="setting-row">
-            <span>Guided assistance</span>
-            <input
-              type="checkbox"
-              checked={view.guided}
-              onChange={(e) => engine.current?.setGuided(e.target.checked)}
-            />
-          </label>
-          <label className="setting-row">
-            <span>Operating-room audio</span>
-            <input
-              type="checkbox"
-              checked={view.sound}
-              onChange={() => engine.current?.toggleSound()}
-            />
-          </label>
-          <label className="setting-row">
-            <span>Rendering quality</span>
-            <select
-              value={view.quality}
-              onChange={(e) =>
-                engine.current?.setQuality(
-                  e.target.value as "high" | "balanced",
-                )
-              }
-            >
-              <option value="high">High</option>
-              <option value="balanced">Balanced</option>
-            </select>
-          </label>
-          <button className="setting-row" onClick={full}>
-            <span>{fullscreen ? "Leave fullscreen" : "Enter fullscreen"}</span>
-            <Icon name="expand" />
-          </button>
-          <p className="menu-footnote">
-            Assistance changes your visual aids. Injury rules remain the same.
-          </p>
-        </section>
-      )}
-      {result && overlay === "none" && (
+      {view.loaded && !view.error && menuOpen && (
         <section
-          className={`menu-panel result-panel ${failed ? "failed" : ""}`}
+          className={`menu-panel ${overlay === "guide" ? "guide-panel" : ""}`}
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
         >
-          <div className="menu-eyebrow">
-            {caseInfo.name.toUpperCase()}
-            <span> / </span>SESSION REVIEW
-          </div>
-          <h1>
-            {failed ? "A consequential contact." : "A controlled finish."}
-          </h1>
-          <p className="menu-description">
-            {failed
-              ? view.events.filter((e) => e.type === "failure").at(-1)?.detail
-              : "The collection is cleared and the field has been inspected."}
-          </p>
-          <div className="result-stats">
-            <div>
-              <span>OUTCOME</span>
-              <strong>
+          {overlay !== "none" && (
+            <button className="back-button" onClick={close}>
+              <Icon name="arrow" size={16} />
+              Back
+            </button>
+          )}
+          <h1>{title}</h1>
+          {overlay === "none" && ready && (
+            <>
+              <p className="menu-description">
+                Open the bone window, clear four fluid pockets, and rinse the
+                field. A complete procedure, one clear task at a time.
+              </p>
+              <ol className="brief-objectives">
+                <li>
+                  <span>01</span>Aim directly with your mouse
+                </li>
+                <li>
+                  <span>02</span>Pick up one tool at a time
+                </li>
+                <li>
+                  <span>03</span>Follow the next task on screen
+                </li>
+              </ol>
+              <label className="toggle-row">
+                <input
+                  type="checkbox"
+                  checked={view.depthAssist}
+                  onChange={(e) =>
+                    engine.current?.setDepthAssist(e.target.checked)
+                  }
+                />
+                <span className="toggle-switch" />
+                <span>
+                  <strong>Assisted depth</strong>
+                  <small>Follows the surface. Lifts when you release.</small>
+                </span>
+              </label>
+              <button
+                className="primary-button"
+                onClick={() => engine.current?.startSurgery()}
+              >
+                Start surgery
+                <Icon name="arrow" />
+              </button>
+              <button
+                className="secondary-button"
+                onClick={() => engine.current?.startRoom()}
+              >
+                Explore operating room
+                <Icon name="arrow" size={17} />
+              </button>
+              <div className="menu-links">
+                <button onClick={() => open("cases")}>Case files</button>
+                <button onClick={() => open("guide")}>How to play</button>
+              </div>
+            </>
+          )}
+          {overlay === "none" && paused && (
+            <>
+              <p className="menu-description">
+                Your progress is held. Return whenever you’re ready.
+              </p>
+              <button
+                className="primary-button"
+                onClick={() => engine.current?.resume()}
+              >
+                Return to the game
+                <Icon name="arrow" />
+              </button>
+              <div className="pause-options">
+                <button onClick={() => open("guide")}>
+                  How to play
+                  <Icon name="help" size={16} />
+                </button>
+                <button onClick={() => open("settings")}>
+                  Controls & graphics
+                  <Icon name="arrow" size={16} />
+                </button>
+                {view.location === "surgery" && view.guided && (
+                  <button onClick={() => engine.current?.restart(true)}>
+                    Retry current stage
+                    <Icon name="arrow" size={16} />
+                  </button>
+                )}
+                <button onClick={() => engine.current?.restart()}>
+                  Restart procedure
+                  <Icon name="arrow" size={16} />
+                </button>
+                <button
+                  onClick={() => {
+                    engine.current?.setCase(view.caseId);
+                    engine.current?.startRoom();
+                  }}
+                >
+                  Explore operating room
+                  <Icon name="arrow" size={16} />
+                </button>
+                <button onClick={() => open("cases")}>
+                  Change case
+                  <Icon name="arrow" size={16} />
+                </button>
+              </div>
+            </>
+          )}
+          {overlay === "cases" && (
+            <>
+              <p className="menu-description">
+                Practice at your own pace, then take on a more demanding
+                collection.
+              </p>
+              <div className="case-list">
+                {(["lab", "case01"] as CaseId[]).map((id, i) => (
+                  <button
+                    key={id}
+                    aria-pressed={selected === id}
+                    className={`case-row ${selected === id ? "chosen" : ""}`}
+                    onClick={() => setSelected(id)}
+                  >
+                    <span className="case-index">0{i + 1}</span>
+                    <span>
+                      <strong>{CASES[id].name}</strong>
+                      <small>
+                        {i === 0
+                          ? "Practice · about 1 minute"
+                          : "Challenge · slower aspiration"}
+                      </small>
+                    </span>
+                    {progress[id] !== undefined ? (
+                      <span className="case-score">
+                        Best {progress[id]}
+                        <Icon name="check" size={14} />
+                      </span>
+                    ) : (
+                      <span className="case-radio" />
+                    )}
+                  </button>
+                ))}
+              </div>
+              <p className="case-detail">{CASES[selected].brief}</p>
+              <button className="primary-button" onClick={chooseCase}>
+                Prepare case
+                <Icon name="arrow" />
+              </button>
+            </>
+          )}
+          {overlay === "guide" && (
+            <>
+              <p className="menu-description">
+                One goal at a time. There’s no countdown.
+              </p>
+              <div className="guide-controls">
+                {[
+                  [
+                    "MOVE",
+                    "Aim directly at the numbered fluid pockets. The instrument follows your pointer.",
+                  ],
+                  [
+                    "HOLD",
+                    "Hold the left mouse button (or touch and hold) to use the selected instrument. Release to lift.",
+                  ],
+                  [
+                    "T / 1–4",
+                    "T pans to the instrument tray. Place the held tool before picking up another. Click a tool, or use 1–4 at the tray.",
+                  ],
+                  [
+                    "SCROLL",
+                    "Fine-tune depth. Scroll down to lower; up to raise. Assisted mode follows the surface; Q switches to manual.",
+                  ],
+                  [
+                    "WASD / E",
+                    "In the room: walk, click to look around, and press E at the tray or microscope. Arrow keys can also look.",
+                  ],
+                  [
+                    "ESC",
+                    "Pause at any time. Losing focus pauses automatically.",
+                  ],
+                ].map(([key, text]) => (
+                  <div key={key}>
+                    <kbd>{key}</kbd>
+                    <p>{text}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="guide-note">
+                <strong>Your procedure</strong>
+                <p>
+                  1. Trace the dotted bone path with the burr, then lift the
+                  flap.
+                  <br />
+                  2. Suction all four numbered fluid pockets.
+                  <br />
+                  3. Irrigate until clear, then release to inspect.
+                </p>
+                <p>
+                  Bone is rigid and can be carved away. Tissue yields under
+                  pressure and rebounds. These are simplified game material
+                  responses. Manual depth enables full tissue and shaft contact.
+                  Lower gently with the scroll wheel or F; withdraw with R.
+                  Bipolar on healthy tissue causes injury in either mode.
+                </p>
+              </div>
+            </>
+          )}
+          {overlay === "settings" && (
+            <>
+              <p className="menu-description">
+                Keep the hand steady and the view comfortable.
+              </p>
+              <label className="setting-row">
+                <span>
+                  <strong>Assisted depth</strong>
+                  <small>Surface following and automatic withdrawal</small>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={view.depthAssist}
+                  onChange={(e) =>
+                    engine.current?.setDepthAssist(e.target.checked)
+                  }
+                />
+              </label>
+              <label className="setting-row">
+                <span>
+                  <strong>Target guides</strong>
+                  <small>Numbered pockets and stage checkpoints</small>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={view.guided}
+                  onChange={(e) => engine.current?.setGuided(e.target.checked)}
+                />
+              </label>
+              <label className="setting-row">
+                <span>
+                  <strong>Graphics</strong>
+                  <small>High adds soft shadows and ambient occlusion</small>
+                </span>
+                <select
+                  value={view.quality}
+                  onChange={(e) =>
+                    engine.current?.setQuality(
+                      e.target.value as "high" | "balanced",
+                    )
+                  }
+                >
+                  <option value="high">High</option>
+                  <option value="balanced">Balanced</option>
+                </select>
+              </label>
+              <button
+                className="setting-row"
+                onClick={() => engine.current?.toggleSound()}
+              >
+                <span>Sound</span>
+                <span>{view.sound ? "On" : "Off"}</span>
+              </button>
+              <button className="setting-row" onClick={fullscreen}>
+                <span>Toggle fullscreen</span>
+                <Icon name="expand" />
+              </button>
+            </>
+          )}
+          {overlay === "none" && result && (
+            <>
+              <p className="menu-description">
                 {failed
-                  ? "Compromised"
-                  : view.injury > 0.08
-                    ? "With injury"
-                    : "Preserved"}
-              </strong>
-            </div>
-            <div>
-              <span>PRECISION</span>
-              <strong>
-                {score(view)}
-                <small> / 100</small>
-              </strong>
-            </div>
-            <div>
-              <span>SESSION</span>
-              <strong>{clock(view.elapsed)}</strong>
-            </div>
-          </div>
-          <button
-            className="primary-button"
-            onClick={() => {
-              if (failed && view.guided) engine.current?.restart(true);
-              else engine.current?.restart();
-            }}
-          >
-            {failed ? "Try again" : "Practice again"}
-            <Icon name="arrow" />
-          </button>
-          <div className="menu-links">
-            <button onClick={() => open("cases")}>Case files</button>
-            <button onClick={() => open("guide")}>Review controls</button>
-          </div>
-          <div className="debrief">
-            <strong>
-              {failed ? "Review the cause" : "Your operative record"}
-            </strong>
-            {view.events
-              .filter((e) =>
-                ["injury", "stage", "complete", "failure"].includes(e.type),
-              )
-              .slice(-4)
-              .map((e, i) => (
-                <div key={i}>
-                  <time>{clock(e.time)}</time>
-                  <span>{e.detail}</span>
+                  ? view.events.filter((e) => e.type === "failure").at(-1)
+                      ?.detail
+                  : "Collection cleared. Field rinsed. Final inspection complete."}
+              </p>
+              <div className="result-stats">
+                <div>
+                  <span>PRECISION</span>
+                  <strong>
+                    {score(view)}
+                    <small>/100</small>
+                  </strong>
                 </div>
-              ))}
-          </div>
-          <p className="menu-footnote">
-            {view.guided ? "Guided assistance enabled." : "Unassisted session."}{" "}
-            {view.injury > 0.01
-              ? "Existing injury is included in this result."
-              : "No tissue injury recorded."}
-          </p>
+                <div>
+                  <span>PROCEDURE</span>
+                  <strong>{clock(view.elapsed)}</strong>
+                </div>
+                <div>
+                  <span>TISSUE INJURY</span>
+                  <strong>
+                    {Math.round(view.injury * 100)}
+                    <small>%</small>
+                  </strong>
+                </div>
+              </div>
+              <button
+                className="primary-button"
+                onClick={() => engine.current?.restart(failed && view.guided)}
+              >
+                {failed ? "Try again" : "Play again"}
+                <Icon name="arrow" />
+              </button>
+              {!failed && view.caseId === "lab" && (
+                <button
+                  className="secondary-button"
+                  onClick={() => {
+                    engine.current?.setCase("case01");
+                    engine.current?.startSurgery();
+                  }}
+                >
+                  Try the challenge
+                  <Icon name="arrow" size={17} />
+                </button>
+              )}
+              <div className="debrief">
+                {view.events
+                  .filter((e) =>
+                    ["stage", "complete", "injury"].includes(e.type),
+                  )
+                  .slice(-4)
+                  .map((e, i) => (
+                    <div key={i}>
+                      <time>{clock(e.time)}</time>
+                      <span>{e.detail}</span>
+                    </div>
+                  ))}
+              </div>
+              <p className="menu-footnote">
+                {view.depthAssist ? "Assisted depth" : "Manual depth"} ·{" "}
+                {view.guided ? "Target guides enabled" : "Unassisted targets"}
+              </p>
+            </>
+          )}
         </section>
       )}
-      <div className="small-screen">
-        <Icon name="expand" size={26} />
-        <h2>A little more room.</h2>
-        <p>
-          Suture uses a mouse and keyboard. Open it on a desktop, or turn your
-          display to landscape.
-        </p>
-      </div>
       {menuOpen && view.loaded && (
-        <div className="menu-bottom">
-          <span>PREPARED-FIELD SIMULATION</span>
-          <button onClick={() => open("settings")}>Settings</button>
-          <button onClick={full} aria-label="Toggle fullscreen">
-            <Icon name="expand" size={14} />
-          </button>
-        </div>
+        <footer className="menu-bottom">
+          <span>Fictional surgical game · Not medical training</span>
+          <div>
+            <button onClick={() => open("settings")}>Settings</button>
+            <button onClick={fullscreen} aria-label="Toggle fullscreen">
+              <Icon name="expand" size={16} />
+            </button>
+          </div>
+        </footer>
       )}
     </main>
   );

@@ -6,6 +6,14 @@ import { buildField, type FieldObjects } from "./scene";
 import { SurgicalAudio } from "./audio";
 import { OperatingRoom } from "./room";
 import { sweepTool } from "./collision";
+import { tissueMaterial } from "./materials";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { SSAOPass } from "three/addons/postprocessing/SSAOPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { BoneWindow, buildBurr } from "./access";
+import { SoftTissue } from "./soft-tissue";
+import { InstrumentTray, TRAY_TOOLS } from "./tool-tray";
 import {
   createState,
   tick,
@@ -27,11 +35,21 @@ export interface Snapshot extends GameState {
   roomPrompt: string;
   heldTool: Tool | null;
   nearTray: boolean;
+  depthAssist: boolean;
+  depthOffset: number;
+  targets: { x: number; y: number; remaining: number }[];
+  accessPhase: "bone" | "lifting" | "surgery";
+  cutProgress: number;
+  cutGuide: { x: number; y: number; done: boolean }[];
+  roomWaypoint: { x: number; y: number; label: string } | null;
+  trayView: boolean;
+  cameraMoving: boolean;
+  traySlots: { tool: Tool; x: number; y: number }[];
 }
 export class Engine {
   state = createState();
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(35, 1, 0.05, 60);
+  camera = new THREE.PerspectiveCamera(35, 1, 0.05, 350);
   renderer: THREE.WebGLRenderer;
   host: HTMLElement;
   brain: THREE.Mesh | null = null;
@@ -67,7 +85,21 @@ export class Engine {
   location: "room" | "surgery" = "room";
   room: OperatingRoom | null = null;
   heldTool: Tool | null = null;
+  depthAssist = true;
+  depthOffset = 0;
+  composer: EffectComposer;
+  occlusion: SSAOPass;
+  beauty: RenderPass;
+  bone: BoneWindow | null = null;
+  softTissue: SoftTissue | null = null;
+  accessPhase: "bone" | "lifting" | "surgery" = "bone";
+  trayView = false;
+  trayPan = 0;
+  tray: InstrumentTray | null = null;
+  autoQuality = true;
+  slowFrames = 0;
   constructor(host: HTMLElement, onChange: (s: Snapshot) => void) {
+    this.state.tool = "drill";
     this.host = host;
     this.onChange = onChange;
     this.renderer = new THREE.WebGLRenderer({
@@ -79,7 +111,7 @@ export class Engine {
     this.renderer.setClearColor(0x081414);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.12;
+    this.renderer.toneMappingExposure = 0.88;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.domElement.setAttribute(
@@ -87,6 +119,15 @@ export class Engine {
       "Interactive 3D surgical field",
     );
     host.appendChild(this.renderer.domElement);
+    this.composer = new EffectComposer(this.renderer);
+    this.beauty = new RenderPass(this.scene, this.camera);
+    this.composer.addPass(this.beauty);
+    this.occlusion = new SSAOPass(this.scene, this.camera, 512, 512, 12);
+    this.occlusion.kernelRadius = 0.16;
+    this.occlusion.minDistance = 0.00008;
+    this.occlusion.maxDistance = 0.008;
+    this.composer.addPass(this.occlusion);
+    this.composer.addPass(new OutputPass());
     this.camera.up.set(0, 0, 1);
     this.updateCamera();
     const pmrem = new THREE.PMREMGenerator(this.renderer),
@@ -96,15 +137,17 @@ export class Engine {
     pmrem.dispose();
     room.dispose();
     this.cleanups.push(() => env.dispose());
-    this.scene.add(new THREE.HemisphereLight(0xe6f3ec, 0x263335, 2));
-    const light = new THREE.SpotLight(0xffe9d5, 54, 15, Math.PI / 3, 0.6, 2);
+    this.scene.add(new THREE.HemisphereLight(0xe9f2f3, 0x42312c, 1.15));
+    const light = new THREE.SpotLight(0xffeee0, 42, 15, Math.PI / 3, 0.8, 2);
     light.position.set(-0.6, -1, 5.5);
     light.target.position.set(0, 0, 0);
     light.castShadow = true;
-    light.shadow.mapSize.set(1024, 1024);
+    light.shadow.mapSize.set(2048, 2048);
+    light.shadow.normalBias = 0.018;
+    light.shadow.radius = 3;
     light.shadow.bias = -0.0005;
     this.scene.add(light, light.target);
-    const fill = new THREE.DirectionalLight(0x9ed4de, 1.5);
+    const fill = new THREE.DirectionalLight(0xc0e2ed, 0.9);
     fill.position.set(3, 2, 4);
     this.scene.add(fill);
     this.observer = new ResizeObserver(() => this.resize());
@@ -115,6 +158,27 @@ export class Engine {
     this.frameId = requestAnimationFrame(this.frame);
   }
   snapshot(): Snapshot {
+    let roomWaypoint: Snapshot["roomWaypoint"] = null;
+    if (this.room) {
+      const p = (
+        this.heldTool ? this.room.scopePosition : this.room.trayPosition
+      ).clone();
+      p.y += this.heldTool ? 0.6 : 0.28;
+      p.project(this.room.camera);
+      roomWaypoint = {
+        x: THREE.MathUtils.clamp(
+          ((p.x + 1) * this.host.clientWidth) / 2,
+          80,
+          this.host.clientWidth - 80,
+        ),
+        y: THREE.MathUtils.clamp(
+          ((1 - p.y) * this.host.clientHeight) / 2,
+          100,
+          this.host.clientHeight - 150,
+        ),
+        label: this.heldTool ? "Microscope" : "Instrument tray",
+      };
+    }
     return {
       ...this.state,
       pockets: this.state.pockets.map((p) => ({ ...p })),
@@ -127,6 +191,30 @@ export class Engine {
       roomPrompt: this.room?.prompt ?? "",
       heldTool: this.heldTool,
       nearTray: this.room?.nearTray ?? false,
+      depthAssist: this.depthAssist,
+      depthOffset: this.depthOffset,
+      targets: this.state.pockets.map((p) => ({
+        ...this.project(p.x, p.y, this.surface(p.x, p.y) + 0.07),
+        remaining: p.remaining,
+      })),
+      accessPhase: this.accessPhase,
+      cutProgress: this.bone?.cut.progress ?? 0,
+      cutGuide:
+        this.bone?.cut.path.map((p) => ({
+          ...this.project(p.x, p.y, this.bone!.height(p.x, p.y)),
+          done: this.bone!.cut.at(p.x, p.y) > 0.82,
+        })) ?? [],
+      roomWaypoint,
+      trayView: this.trayView,
+      cameraMoving:
+        Math.abs(
+          this.trayPan - (this.location === "surgery" && this.trayView ? 1 : 0),
+        ) > 0.001,
+      traySlots:
+        this.tray?.slots.map((s) => ({
+          tool: s.tool,
+          ...this.project(s.x - 0.12, s.y + 0.17, s.z),
+        })) ?? [],
     };
   }
   emit() {
@@ -136,15 +224,25 @@ export class Engine {
     try {
       const loader = new GLTFLoader();
       const assetBase = import.meta.env.BASE_URL;
-      const [anatomy, suction, irrigation, bipolar, drape, corticalTexture] =
-        await Promise.all([
-          loader.loadAsync(`${assetBase}models/cortex.glb`),
-          loader.loadAsync(`${assetBase}models/suction.glb`),
-          loader.loadAsync(`${assetBase}models/irrigation.glb`),
-          loader.loadAsync(`${assetBase}models/bipolar.glb`),
-          new THREE.TextureLoader().loadAsync(`${assetBase}textures/drape.png`),
-          new THREE.TextureLoader().loadAsync(`${assetBase}textures/cortex.png`),
-        ]);
+      const [
+        anatomy,
+        suction,
+        irrigation,
+        bipolar,
+        drape,
+        corticalTexture,
+        boneTexture,
+      ] = await Promise.all([
+        loader.loadAsync(`${assetBase}models/cortex.glb`),
+        loader.loadAsync(`${assetBase}models/suction.glb`),
+        loader.loadAsync(`${assetBase}models/irrigation.glb`),
+        loader.loadAsync(`${assetBase}models/bipolar.glb`),
+        new THREE.TextureLoader().loadAsync(`${assetBase}textures/drape.png`),
+        new THREE.TextureLoader().loadAsync(
+          `${assetBase}textures/cortex-detail.webp`,
+        ),
+        new THREE.TextureLoader().loadAsync(`${assetBase}textures/bone.webp`),
+      ]);
       if (this.disposed) return;
       anatomy.scene.updateMatrixWorld(true);
       corticalTexture.colorSpace = THREE.SRGBColorSpace;
@@ -160,14 +258,7 @@ export class Engine {
             uv[i * 2 + 1] = (positions.getY(i) + 1.6) / 3.2;
           }
           o.geometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
-          o.material = new THREE.MeshPhysicalMaterial({
-            map: corticalTexture,
-            color: 0xd4a99a,
-            roughness: 0.48,
-            clearcoat: 0.18,
-            clearcoatRoughness: 0.3,
-            side: THREE.DoubleSide,
-          });
+          o.material = tissueMaterial(corticalTexture);
           o.geometry.boundsTree = new MeshBVH(o.geometry);
           o.raycast = acceleratedRaycast;
           o.receiveShadow = true;
@@ -177,6 +268,7 @@ export class Engine {
       if (!this.brain)
         throw new Error("The anatomy asset did not contain a surface.");
       this.scene.add(anatomy.scene);
+      this.softTissue = new SoftTissue(this.brain);
       this.scene.updateMatrixWorld(true);
       this.field = buildField(
         this.scene,
@@ -184,7 +276,9 @@ export class Engine {
         drape,
         this.state.pockets,
         this.brain,
+        boneTexture,
       );
+      this.bone = new BoneWindow(this.scene, boneTexture);
       for (const [name, model] of [
         ["suction", suction],
         ["irrigation", irrigation],
@@ -192,7 +286,7 @@ export class Engine {
       ] as const) {
         const group = new THREE.Group();
         group.add(model.scene);
-        group.rotation.set(0, -0.52, -0.48);
+        group.rotation.set(0, -0.85, -0.48);
         group.name = name;
         group.traverse((o) => {
           if (o instanceof THREE.Mesh) {
@@ -203,11 +297,60 @@ export class Engine {
         this.tools[name] = group;
         this.scene.add(group);
       }
+      const burr = buildBurr();
+      burr.name = "drill";
+      burr.rotation.set(0, -0.85, -0.48);
+      this.tools.drill = burr;
+      this.scene.add(burr);
       this.room = new OperatingRoom(
         this.scene.environment as THREE.Texture,
         drape,
       );
       this.room.installTools(this.tools);
+      this.tray = new InstrumentTray(this.scene, this.tools, drape);
+      // A shared 3D room, expressed in the close camera's surgical units. The
+      // cloned geometry/materials keep the optical view and walking view aligned.
+      const station = new THREE.Matrix4().compose(
+        new THREE.Vector3(0, 1.13, -1.03),
+        new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(-Math.PI / 2, 0, 0),
+        ),
+        new THREE.Vector3(0.035, 0.035, 0.035),
+      );
+      const backdrop = this.room.scene.clone(true);
+      backdrop.traverse((o) => {
+        if (o instanceof THREE.Light) {
+          o.castShadow = false;
+          if (o instanceof THREE.HemisphereLight) o.intensity = 0;
+          else if (
+            o instanceof THREE.PointLight ||
+            o instanceof THREE.SpotLight
+          ) {
+            o.intensity *= 0.28 / (0.035 * 0.035);
+            if (o.distance > 0) o.distance /= 0.035;
+          } else o.intensity *= 0.28;
+        }
+        if (o instanceof THREE.Mesh) {
+          const p = o.getWorldPosition(new THREE.Vector3());
+          if (
+            Math.abs(p.x - 0.04) < 0.22 &&
+            Math.abs(p.z + 1.03) < 0.3 &&
+            p.y > 0.85 &&
+            p.y < 1.9
+          )
+            o.visible = false;
+        }
+      });
+      backdrop.applyMatrix4(station.clone().invert());
+      const preview = this.scene.clone(true);
+      preview.traverse((o) => {
+        if (o instanceof THREE.Light) o.visible = false;
+        if (Object.values(this.tools).some((t) => t?.name && t.name === o.name))
+          o.visible = false;
+      });
+      preview.applyMatrix4(station);
+      this.room.scene.add(preview);
+      this.scene.add(backdrop);
       this.room.camera.aspect = this.camera.aspect;
       this.room.camera.updateProjectionMatrix();
       if (this.renderer.extensions.has("KHR_parallel_shader_compile"))
@@ -230,9 +373,15 @@ export class Engine {
     return hit ? hit.point.z : -0.35;
   }
   updateCamera() {
-    const z = this.state.zoom;
-    this.camera.position.set(0.0, -2.65 / z, 6.6 / z);
-    this.camera.lookAt(0, -0.04, -0.13);
+    const z = this.state.zoom * (1 - this.trayPan * 0.28);
+    const fit = Math.min(1, this.camera.aspect / 0.95);
+    const x = this.trayPan * 2.25;
+    this.camera.position.set(
+      x,
+      (-2.65 - this.trayPan * 3.2) / z / fit - this.trayPan * 0.25,
+      6.6 / z / fit,
+    );
+    this.camera.lookAt(x, -0.04 - this.trayPan * 0.25, -0.13);
     this.camera.updateMatrixWorld();
     this.pointer = null;
     this.dirty = true;
@@ -241,19 +390,24 @@ export class Engine {
     const w = this.host.clientWidth,
       h = this.host.clientHeight;
     this.renderer.setSize(w, h);
+    this.composer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.updateCamera();
     if (this.room) {
       this.room.camera.aspect = w / h;
       this.room.camera.updateProjectionMatrix();
     }
-    if (w < 680 && h > w && this.state.status === "running") this.pause();
     this.dirty = true;
   }
   lockPointer() {
     if (this.location === "room") {
-      const result = this.renderer.domElement.requestPointerLock();
-      if (result instanceof Promise) void result.catch(() => {});
+      try {
+        const result = this.renderer.domElement.requestPointerLock?.();
+        if (result instanceof Promise) void result.catch(() => {});
+      } catch {
+        /* Drag and arrow-key look remain available. */
+      }
     }
   }
   freezeInput() {
@@ -281,6 +435,74 @@ export class Engine {
     this.lockPointer();
     this.emit();
   }
+  startSurgery() {
+    if (!this.loaded) return;
+    this.location = "surgery";
+    this.trayView = this.heldTool === null;
+    this.room?.keys.clear();
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.start();
+  }
+  startRoom() {
+    this.location = "room";
+    this.start();
+  }
+  setDepthAssist(value: boolean) {
+    this.freezeInput();
+    this.depthAssist = value;
+    this.depthOffset = 0;
+    this.emit();
+  }
+  liftBone() {
+    if (
+      this.state.status !== "running" ||
+      this.accessPhase !== "bone" ||
+      !this.bone?.lift()
+    )
+      return;
+    this.freezeInput();
+    this.accessPhase = "lifting";
+    logEvent(this.state, "stage", "Bone window opened");
+    this.emit();
+  }
+  aimAt(clientX: number, clientY: number) {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    this.ray.setFromCamera(
+      new THREE.Vector2(
+        ((clientX - r.left) / r.width) * 2 - 1,
+        1 - ((clientY - r.top) / r.height) * 2,
+      ),
+      this.camera,
+    );
+    if (this.accessPhase === "bone" && this.bone) {
+      // Aim on the original convex shell so a deepening groove cannot pull
+      // the pointer sideways. Working depth follows the carved surface.
+      const p = new THREE.Vector3();
+      let z = 0.5;
+      for (let i = 0; i < 5; i++) {
+        this.ray.ray.at(
+          (z - this.ray.ray.origin.z) / this.ray.ray.direction.z,
+          p,
+        );
+        z = this.bone.height(p.x, p.y);
+      }
+      this.target.x = THREE.MathUtils.clamp(p.x, -1.75, 1.75);
+      this.target.y = THREE.MathUtils.clamp(p.y, -1.5, 1.5);
+      return;
+    }
+    const aimMesh = this.accessPhase === "bone" ? this.bone?.mesh : this.brain;
+    const hit = aimMesh ? this.ray.intersectObject(aimMesh, false)[0] : null;
+    const point =
+      hit?.point ??
+      this.ray.ray.intersectPlane(
+        new THREE.Plane(new THREE.Vector3(0, 0, 1), 0),
+        new THREE.Vector3(),
+      );
+    if (!point) return;
+    this.target.x = THREE.MathUtils.clamp(point.x, -1.75, 1.75);
+    this.target.y = THREE.MathUtils.clamp(point.y, -1.5, 1.5);
+    this.pointer = { x: clientX, y: clientY };
+  }
   pause() {
     pause(this.state);
     this.freezeInput();
@@ -292,12 +514,38 @@ export class Engine {
   resume() {
     if (this.state.status === "paused") this.start();
   }
-  selectTool(tool: Tool) {
+  toggleTray() {
     this.freezeInput();
-    chooseTool(this.state, tool);
+    this.trayView = !this.trayView;
+    this.dirty = true;
+    this.emit();
+  }
+  placeTool() {
+    if (this.location !== "surgery" || !this.trayView || !this.heldTool) return;
+    this.freezeInput();
+    logEvent(this.state, "handoff", `Placed ${this.heldTool} on tray`);
+    this.heldTool = null;
+    this.tray?.update(null);
+    this.dirty = true;
+    this.emit();
+  }
+  selectTool(tool: Tool) {
     if (this.location === "surgery") {
+      if (!this.trayView || this.heldTool) return;
+      this.freezeInput();
+      chooseTool(this.state, tool);
+      this.tip.z = 1;
+      this.target.copy(this.tip);
+      this.previous.copy(this.tip);
+      this.state.depth = this.tip.z;
+      this.depthOffset = 0;
       this.heldTool = tool;
-      this.room?.hold(tool);
+      this.trayView = false;
+      this.tray?.update(tool);
+      logEvent(this.state, "pickup", `Picked up ${tool} from surgical tray`);
+    } else {
+      this.freezeInput();
+      chooseTool(this.state, tool);
     }
     this.dirty = true;
     this.emit();
@@ -306,6 +554,11 @@ export class Engine {
     if (!this.room || this.location !== "room") return;
     if (this.room.prompt === "Enter surgical view" && this.heldTool) {
       this.location = "surgery";
+      if (this.accessPhase === "bone") {
+        chooseTool(this.state, "drill");
+        this.heldTool = "drill";
+      }
+      this.trayView = false;
       this.room.keys.clear();
       if (document.pointerLockElement) document.exitPointerLock();
       this.state.action = false;
@@ -322,11 +575,19 @@ export class Engine {
   setCase(id: CaseId) {
     const old = this.state;
     this.state = createState(id, old.guided, old.entry + 1);
+    this.state.tool = "drill";
+    this.accessPhase = "bone";
+    this.bone?.reset();
+    this.softTissue?.reset();
+    this.depthOffset = 0;
     this.stageSnapshots.clear();
     this.state.sound = old.sound;
     this.state.quality = old.quality;
     this.location = "room";
     this.heldTool = null;
+    this.trayView = false;
+    this.trayPan = 0;
+    this.tray?.update(null);
     this.room?.hold(null);
     if (this.room) {
       this.room.position.set(1.6, 1.65, 2.5);
@@ -350,7 +611,17 @@ export class Engine {
         this.state,
         this.stageSnapshots.get(this.state.stage),
       );
+      if (this.accessPhase !== "surgery") {
+        this.bone?.reset();
+        this.accessPhase = "bone";
+        this.state.tool = "drill";
+      }
       this.tip.set(0.55, -0.3, 0.62);
+      this.heldTool = null;
+      this.trayView = true;
+      this.tray?.update(null);
+      this.depthOffset = 0;
+      this.softTissue?.reset();
       this.target.copy(this.tip);
       this.previous.copy(this.tip);
       this.field?.reset(this.state.pockets);
@@ -358,8 +629,10 @@ export class Engine {
       this.emit();
     } else {
       const id = this.state.caseId;
+      const wasSurgery = this.location === "surgery";
       this.setCase(id);
-      this.start();
+      if (wasSurgery) this.startSurgery();
+      else this.start();
     }
     this.dirty = true;
   }
@@ -374,12 +647,16 @@ export class Engine {
     this.emit();
     this.dirty = true;
   }
-  setQuality(value: "high" | "balanced") {
+  setQuality(value: "high" | "balanced", automatic = false) {
+    this.autoQuality = automatic;
     this.state.quality = value;
     this.renderer.setPixelRatio(
-      Math.min(window.devicePixelRatio, value === "high" ? 1.6 : 1),
+      Math.min(window.devicePixelRatio, value === "high" ? 1.6 : 0.8),
     );
     this.renderer.shadowMap.enabled = value === "high";
+    this.composer.setPixelRatio(
+      Math.min(window.devicePixelRatio, value === "high" ? 1.6 : 0.8),
+    );
     this.resize();
     this.emit();
   }
@@ -418,22 +695,7 @@ export class Engine {
         }
         return;
       }
-      if (!this.pointer) {
-        this.pointer = { x: e.clientX, y: e.clientY };
-        return;
-      }
-      const r = canvas.getBoundingClientRect(),
-        factor =
-          ((this.precision ? 0.24 : 1) * 3.6) / r.height / this.state.zoom;
-      const dx = (e.clientX - this.pointer.x) * factor,
-        dy = (e.clientY - this.pointer.y) * factor;
-      this.target.x = THREE.MathUtils.clamp(this.target.x + dx, -1.65, 1.65);
-      this.target.y = THREE.MathUtils.clamp(
-        this.target.y - dy * 1.08,
-        -1.4,
-        1.4,
-      );
-      this.pointer = { x: e.clientX, y: e.clientY };
+      if (!this.trayView && this.heldTool) this.aimAt(e.clientX, e.clientY);
     }) as EventListener);
     listen(canvas, "pointerdown", ((e: PointerEvent) => {
       if (e.button === 0 && this.state.status === "running") {
@@ -441,7 +703,23 @@ export class Engine {
           this.lockPointer();
           return;
         }
+        if (this.trayView) {
+          const r = canvas.getBoundingClientRect();
+          this.ray.setFromCamera(
+            new THREE.Vector2(
+              ((e.clientX - r.left) / r.width) * 2 - 1,
+              1 - ((e.clientY - r.top) / r.height) * 2,
+            ),
+            this.camera,
+          );
+          const hit = this.tray?.hit(this.ray);
+          if (this.heldTool && hit === "place") this.placeTool();
+          else if (hit && hit !== "place") this.selectTool(hit);
+          return;
+        }
+        if (!this.heldTool || this.trayPan > 0.001) return;
         this.state.action = true;
+        this.aimAt(e.clientX, e.clientY);
         canvas.setPointerCapture(e.pointerId);
         e.preventDefault();
       }
@@ -481,6 +759,14 @@ export class Engine {
         e.preventDefault();
         if (this.state.status !== "running" || this.location !== "surgery")
           return;
+        if (this.depthAssist) {
+          this.depthOffset = THREE.MathUtils.clamp(
+            this.depthOffset - Math.sign(e.deltaY) * 0.018,
+            -0.18,
+            0.65,
+          );
+          return;
+        }
         this.target.z = THREE.MathUtils.clamp(
           this.target.z -
             Math.sign(e.deltaY) * (this.precision ? 0.012 : 0.045),
@@ -532,21 +818,30 @@ export class Engine {
         if (k === "e") this.interactRoom();
         if (["1", "2", "3"].includes(k) && this.room?.nearTray)
           this.selectTool(
-            (["suction", "irrigation", "bipolar"] as const)[+k - 1],
+            this.accessPhase === "bone"
+              ? "drill"
+              : (["suction", "irrigation", "bipolar"] as const)[+k - 1],
           );
         return;
       }
-      if (["1", "2", "3"].includes(e.key))
-        this.selectTool(
-          (["suction", "irrigation", "bipolar"] as const)[+e.key - 1],
-        );
+      if (e.key.toLowerCase() === "t") this.toggleTray();
+      if (e.key.toLowerCase() === "e") {
+        if (this.trayView) this.placeTool();
+        else this.liftBone();
+      }
+      if (["1", "2", "3", "4"].includes(e.key)) {
+        if (this.trayView && !this.heldTool)
+          this.selectTool(TRAY_TOOLS[+e.key - 1]);
+        else if (!this.trayView) this.toggleTray();
+      }
       if (e.key.toLowerCase() === "h") this.toggleAnatomy();
-      if (e.key.toLowerCase() === "f")
+      if (e.key.toLowerCase() === "q") this.setDepthAssist(!this.depthAssist);
+      if (e.key.toLowerCase() === "f" && !this.depthAssist)
         this.target.z = Math.max(
           -0.55,
           this.target.z - (this.precision ? 0.01 : 0.035),
         );
-      if (e.key.toLowerCase() === "r")
+      if (e.key.toLowerCase() === "r" && !this.depthAssist)
         this.target.z = Math.min(
           1.2,
           this.target.z + (this.precision ? 0.01 : 0.035),
@@ -577,7 +872,7 @@ export class Engine {
     }
     const model = this.tools[this.state.tool],
       tree = this.brain?.geometry.boundsTree;
-    if (model && tree instanceof MeshBVH) {
+    if (!this.depthAssist && model && tree instanceof MeshBVH) {
       const hit = sweepTool(
         this.state.tool,
         this.previous,
@@ -590,6 +885,19 @@ export class Engine {
       shaftContact = hit.tissue;
       vessel = hit.vessel;
       injuryPoint = hit.hitPoint;
+    }
+    // The assisted hand tracks the real surface and keeps the shaft elevated.
+    // Manual mode retains the swept shaft/vessel collision challenge.
+    if (this.depthAssist) {
+      clearance = this.tip.z - this.surface(this.tip.x, this.tip.y);
+      shaftContact = false;
+      if (clearance < 0.035)
+        vessel =
+          this.field?.vessels.find((v) =>
+            v.points.some(
+              (p) => p.distanceToSquared(this.tip) < (v.radius + 0.04) ** 2,
+            ),
+          )?.name ?? null;
     }
     const inField =
       (this.tip.x * this.tip.x) / (1.62 * 1.62) +
@@ -632,7 +940,8 @@ export class Engine {
   frame = (now: number) => {
     if (this.disposed) return;
     this.frameId = requestAnimationFrame(this.frame);
-    const delta = Math.min((now - this.last) / 1000, 0.1);
+    const frameDelta = (now - this.last) / 1000;
+    const delta = Math.min(frameDelta, 0.1);
     this.last = now;
     if (this.loaded) {
       if (this.state.status === "running" && this.location === "room") {
@@ -643,10 +952,63 @@ export class Engine {
         while (this.accumulator >= 1 / 60) {
           this.previous.copy(this.tip);
           // Small, bounded interpolation keeps motion stable without adding floaty inertia.
-          this.tip.lerp(this.target, 0.72);
-          const c = this.contact(),
-            oldStage = this.state.stage;
+          if (this.depthAssist) {
+            const bone = this.accessPhase !== "surgery";
+            const surface = (x: number, y: number) =>
+              bone && this.bone
+                ? this.bone.height(x, y) - this.bone.cut.at(x, y) * 0.16
+                : this.surface(x, y);
+            const clearance = this.state.action ? (bone ? 0.025 : 0.11) : 0.38;
+            this.target.z =
+              surface(this.target.x, this.target.y) +
+              clearance +
+              this.depthOffset;
+            this.tip.lerp(this.target, this.precision ? 0.18 : 0.48);
+            // Follow every intervening ridge instead of cutting through it.
+            this.tip.z =
+              surface(this.tip.x, this.tip.y) + clearance + this.depthOffset;
+            this.state.depth = this.tip.z;
+          } else this.tip.lerp(this.target, this.precision ? 0.18 : 0.48);
+          if (this.accessPhase !== "surgery") {
+            this.state.elapsed += 1 / 60;
+            this.state.clearance =
+              this.tip.z -
+              (this.bone
+                ? this.bone.height(this.tip.x, this.tip.y) -
+                  this.bone.cut.at(this.tip.x, this.tip.y) * 0.16
+                : 0.5);
+            if (
+              this.accessPhase === "bone" &&
+              this.state.action &&
+              this.state.tool === "drill" &&
+              this.state.clearance < 0.12 &&
+              this.state.clearance > -0.12
+            )
+              this.bone?.carve(this.tip.x, this.tip.y, 1 / 60);
+            this.accumulator -= 1 / 60;
+            continue;
+          }
+          const operative =
+            !this.trayView && this.heldTool !== null && this.trayPan <= 0.001;
+          const c: Contact = operative
+            ? this.contact()
+            : {
+                clearance: 0.38,
+                inField: false,
+                pocket: -1,
+                vessel: null,
+                shaftContact: false,
+                tip: [this.tip.x, this.tip.y, this.tip.z],
+                bleedDistance: Infinity,
+              };
+          const oldStage = this.state.stage;
           tick(this.state, c, 1 / 60);
+          this.softTissue?.update(
+            this.tip,
+            c.clearance,
+            this.state.action,
+            1 / 60,
+          );
           this.accumulator -= 1 / 60;
           if (this.state.stage !== oldStage)
             this.stageSnapshots.set(
@@ -660,11 +1022,43 @@ export class Engine {
         }
         this.dirty = true;
       } else this.accumulator = 0;
+      if (this.location === "surgery" && this.state.status === "running") {
+        this.bone?.update(delta);
+        if (
+          this.accessPhase === "lifting" &&
+          (this.bone?.liftTime ?? 0) > 1.3
+        ) {
+          this.accessPhase = "surgery";
+          this.depthOffset = 0;
+          this.trayView = true;
+          this.freezeInput();
+        }
+      }
       for (const [name, model] of Object.entries(this.tools))
         if (model) {
-          model.visible = name === this.state.tool;
-          model.position.copy(this.tip);
+          model.visible = this.location === "surgery" && name === this.heldTool;
+          if (this.trayView) model.position.set(0.7, -2.5, 1.6);
+          else model.position.copy(this.tip);
+          if (
+            name === "drill" &&
+            this.state.action &&
+            this.state.status === "running"
+          )
+            model.children[0].rotation.x += delta * 50;
         }
+      const panTarget = this.location === "surgery" && this.trayView ? 1 : 0;
+      if (Math.abs(this.trayPan - panTarget) > 0.0001) {
+        this.trayPan = THREE.MathUtils.damp(
+          this.trayPan,
+          panTarget,
+          8,
+          Math.min(frameDelta, 0.5),
+        );
+        if (Math.abs(this.trayPan - panTarget) < 0.001)
+          this.trayPan = panTarget;
+        this.updateCamera();
+      }
+      this.tray?.update(this.heldTool);
       if (this.dirty) {
         this.field?.update(
           this.state,
@@ -672,14 +1066,36 @@ export class Engine {
           this.surface(this.tip.x, this.tip.y),
           now / 1000,
         );
+        if (
+          this.field &&
+          (this.accessPhase !== "surgery" || this.trayView || !this.heldTool)
+        ) {
+          this.field.guide.visible = false;
+          this.field.contact.visible = false;
+          this.field.stream.visible = false;
+        }
         if (this.field)
           this.field.contact.quaternion.copy(this.camera.quaternion);
-        this.renderer.render(
-          this.location === "room" && this.room ? this.room.scene : this.scene,
+        const scene =
+          this.location === "room" && this.room ? this.room.scene : this.scene;
+        const camera =
           this.location === "room" && this.room
             ? this.room.camera
-            : this.camera,
-        );
+            : this.camera;
+        if (this.state.quality === "high") {
+          this.beauty.scene = scene;
+          this.beauty.camera = camera;
+          this.occlusion.scene = scene;
+          this.occlusion.camera = camera;
+          const u = this.occlusion.ssaoMaterial.uniforms;
+          u.cameraNear.value = camera.near;
+          u.cameraFar.value = camera.far;
+          u.cameraProjectionMatrix.value.copy(camera.projectionMatrix);
+          u.cameraInverseProjectionMatrix.value.copy(
+            camera.projectionMatrixInverse,
+          );
+          this.composer.render();
+        } else this.renderer.render(scene, camera);
         this.dirty = false;
         this.frameCount++;
       }
@@ -696,6 +1112,14 @@ export class Engine {
             : 60;
         this.frameCount = 0;
         this.fpsAt = now;
+        if (
+          this.autoQuality &&
+          this.state.status === "running" &&
+          this.state.quality === "high"
+        ) {
+          this.slowFrames = this.fps < 25 ? this.slowFrames + 1 : 0;
+          if (this.slowFrames >= 2) this.setQuality("balanced", true);
+        }
       }
       if (now - this.publishAt > 100) {
         this.publishAt = now;
@@ -737,6 +1161,8 @@ export class Engine {
     geometries.forEach((g) => g.dispose());
     textures.forEach((t) => t.dispose());
     this.renderer.dispose();
+    this.composer.passes.forEach((pass) => pass.dispose());
+    this.composer.dispose();
     this.renderer.domElement.remove();
   }
 }

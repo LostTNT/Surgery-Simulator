@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import type { Tool } from "./simulation";
+import { TOOLS, type Tool } from "./simulation";
 
 export class OperatingRoom {
   scene = new THREE.Scene();
@@ -25,7 +25,7 @@ export class OperatingRoom {
     this.scene.background = new THREE.Color(0x2a3434);
     this.scene.environment = environment;
     const white = new THREE.MeshStandardMaterial({
-      color: 0xb8c0b7,
+      color: 0xd9e0dd,
       roughness: 0.55,
     });
     const steel = new THREE.MeshStandardMaterial({
@@ -42,7 +42,7 @@ export class OperatingRoom {
       roughness: 0.42,
     });
     const green = new THREE.MeshStandardMaterial({
-      color: 0x526c65,
+      color: 0x3e635e,
       roughness: 0.78,
     });
     const emit = new THREE.MeshStandardMaterial({
@@ -138,7 +138,11 @@ export class OperatingRoom {
       8,
       0.1,
       9,
-      new THREE.MeshStandardMaterial({ color: 0x737e7b, roughness: 0.43 }),
+      new THREE.MeshStandardMaterial({
+        color: 0x60716e,
+        roughness: 0.32,
+        metalness: 0.12,
+      }),
       0,
       -0.05,
       0,
@@ -178,16 +182,18 @@ export class OperatingRoom {
       }
     for (const x of [-2, 2])
       for (const z of [-2, 2]) box(0.9, 0.025, 0.55, emit, x, 3.22, z);
-    this.scene.add(new THREE.HemisphereLight(0xe8eee6, 0x485754, 1.05));
+    this.scene.add(new THREE.HemisphereLight(0xeaf4f8, 0x34433e, 1.45));
     this.scene.environmentIntensity = 0.75;
-    const key = new THREE.SpotLight(0xfff0d6, 34, 10, Math.PI / 3, 0.7, 2);
+    const key = new THREE.SpotLight(0xfff0df, 46, 10, Math.PI / 3, 0.7, 2);
     key.position.set(-1, 2.95, 0);
     key.target.position.set(0, 0.8, -0.3);
     key.castShadow = true;
-    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.mapSize.set(2048, 2048);
+    key.shadow.normalBias = 0.015;
+    key.shadow.radius = 4;
     key.shadow.bias = -0.0004;
     this.scene.add(key, key.target);
-    const fill = new THREE.PointLight(0xc7e0e0, 14, 10, 2);
+    const fill = new THREE.PointLight(0xc7e5f1, 21, 10, 2);
     fill.position.set(2.4, 2.8, 2);
     this.scene.add(fill);
     // Adjustable table, support and foot-end hardware.
@@ -576,16 +582,18 @@ export class OperatingRoom {
   }
   installTools(models: Partial<Record<Tool, THREE.Group>>) {
     this.toolModels = models;
-    (["suction", "irrigation", "bipolar"] as Tool[]).forEach((name, i) => {
-      const m = models[name]?.clone();
-      if (m) {
-        m.scale.setScalar(0.085);
-        m.rotation.set(0, -0.1, 0);
-        m.position.set(1.18, 0.99, -0.04 + i * 0.12);
-        this.scene.add(m);
-        this.trayTools[name] = m;
-      }
-    });
+    (["drill", "suction", "irrigation", "bipolar"] as Tool[]).forEach(
+      (name, i) => {
+        const m = models[name]?.clone();
+        if (m) {
+          m.scale.setScalar(0.085);
+          m.rotation.set(0, -0.1, 0);
+          m.position.set(1.18, 0.99, -0.08 + i * 0.09);
+          this.scene.add(m);
+          this.trayTools[name] = m;
+        }
+      },
+    );
   }
   hold(tool: Tool | null) {
     if (this.held) {
@@ -596,6 +604,7 @@ export class OperatingRoom {
       if (model) model.visible = name !== tool;
     if (tool && this.toolModels[tool]) {
       this.held = this.toolModels[tool]!.clone();
+      this.held.visible = true;
       this.held.scale.setScalar(0.13);
       this.held.rotation.set(0.08, -0.7, 2.95);
       this.held.position.set(0.38, -0.3, -0.62);
@@ -662,7 +671,7 @@ export class OperatingRoom {
       distance(this.scopePosition) < distance(this.trayPosition)
         ? "Enter surgical view"
         : this.nearTray
-          ? "Take " + selected
+          ? "Take " + TOOLS[selected].name
           : this.canOperate
             ? held
               ? "Enter surgical view"

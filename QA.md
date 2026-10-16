@@ -1,96 +1,50 @@
-# Prototype verification and next iteration
+# Interactive redesign verification
 
-The first playable prototype passes the functional checks below. Its graphics remain substantially below the intended production-quality realism. This is a tested interaction foundation, not the finished game or a clinically validated simulator.
+The flow under test is: load Suture → Start surgery → pick up the burr from the tray → carve the guided bone path → lift the flap → place the burr → pick up suction → clear four pockets → place suction → pick up irrigation → rinse → release → successful session review.
 
-**Environment and methods**
+## Automated checks
 
-- Hosted Vite development server: `http://localhost:5173`.
-- Browser plugin is unavailable; regular Playwright with installed Chromium was used.
-- Chromium ran headlessly with software WebGL (`--use-angle=swiftshader --enable-unsafe-swiftshader`). Software rendering was slow, approximately 2 FPS in some captures. These runs do not establish GPU performance on the user's computer.
-- Native concept-sized captures: 1672 × 941. Additional checks: 1440 × 900, 1100 × 700, 960 × 600, 720 × 480, and 390 × 844 portrait handling.
-- Actual UI/pointer/keyboard checks are separated from technical geometry tests using the development diagnostic API. Known-coordinate tests are not evidence that an unfamiliar human can aim, learn, or enjoy the game.
-- All development and automation ran in the hosted workspace. No automation was run on the user's computer.
+`npm test` covers 20 cases: collision sweeps, actual contact locations, pause/input release, time-step agreement, injury and persistent bleeding, checkpoints, complete objective progression, local bone removal, path coverage, reset, and localized soft-tissue deformation/rebound, visible 3D instrument picking and placement into an empty slot.
 
-**Verified checks**
+`npm run build` type-checks and builds the static app. The production build uses `VITE_BASE_PATH=/Surgery-Simulator/`.
 
-| Flow or check | Result and evidence |
+`node tools/qa-hosting.cjs http://localhost:4174/Surgery-Simulator/` runs real pointer and button interactions through the full procedure. It reads visible guide/target geometry, never mutates hidden simulation state, checks the page title and framework-overlay absence, and collects runtime/console/HTTP errors. Captures go to `/tmp/suture-qa/`, outside committed source. `npm run qa` and `npm run qa:completion` run the same visible interaction regression against the development server.
+
+Browser plugin availability: **absent**. Playwright Chromium with SwiftShader is the available fallback. Software rendering is slow in this environment; the test explicitly selects Balanced graphics and allows time for real progress. This establishes behavior, not hardware GPU frame rate or human enjoyment.
+
+## Visual comparison ledger
+
+References are recorded in [DESIGN.md](DESIGN.md). Concept and implementation captures are inspected using `view_image`.
+
+| Comparison | Evidence and resolution |
 | --- | --- |
-| Production build | `npm run build` passes TypeScript and Vite. Vite reports a large Three.js bundle; later loading/profiling work remains. |
-| Simulation/collision regressions | `npm test`: 14 pass. Covers bleeding away from the field, activation release, pause, shaft injury, actual injury position, rate consistency, vessel failure, true checkpoint state, completion sequence, thin-vessel sweep, static contact, and bipolar tine separation. |
-| Page identity and rendering | Correct title, meaningful game screen, actual canvas scene, no framework error overlay. |
-| Console health | Final room/surgery/failure/retry/portrait browser run captured no JavaScript or console errors. Initial favicon 404 was fixed. |
-| First-person preparation | Start -> WASD approach tray -> select tool -> E pickup -> approach microscope -> E surgical view. Passed using real keyboard controls. |
-| Select a different physical tool | Select bipolar at tray, E collects bipolar; selection and held tool agree. |
-| Native room Escape | Escape exits mouse capture and pauses preparation. |
-| Menus | Opening the field guide pauses the game; Escape closes the overlay and leaves it paused. |
-| Pending movement | Moving target -> pause -> resume does not execute the old pending movement or cause injury. |
-| Focus safety | Blur releases input and pauses. |
-| Complete procedure path | Controlled approach -> aspirate all four pockets -> select irrigation -> rinse -> release -> inspection -> successful debrief, with zero injury. Actual held pointer input performed actions; diagnostic coordinates positioned the tool. Recorded simulated time was about 18.5 seconds, excluding preparation. No unsupported multi-minute duration claim is shown. |
-| Failure path | Sustained actual geometry contact produces a recorded tissue injury and a failed outcome. |
-| Retry | Guided retry restores a new safe attempt; stage snapshots preserve completed work and the saved injury/clarity/time state. |
-| Portrait safety | Resizing during play to 390 × 844 pauses the game and shows desktop/landscape guidance; no horizontal overflow. |
-| Results layout | Replay/next action is moved ahead of the detailed operative record. Gameplay prompts are hidden behind menus/results. The final small-layout check uses a clearly identified completed-state fixture; procedure completion itself was independently exercised above. |
+| Composition | Full-screen surgical field, compact top identity/utilities, task at upper left, centered hand/tray controls and lower-right monitoring retained. |
+| Task copy and progress | Clear/Rinse/Inspect retained; Open added for the user's bone-access request. Cutting coverage, cleared-pocket count, clarity and final inspection use real state. |
+| Palette and typography | Barlow 400/500, warm white text, sage selection, near-black teal overlays; deliberate compact control and monospace numerical styles. |
+| Guide visibility | The initial faint world-space cutting dots were replaced with a readable native dashed guide, registered to the convex 3D surface. |
+| Text contrast | Added a restrained shade behind the task where bone otherwise crossed the text. Target labels keep a fixed center while percentages appear beside them. |
+| Instrument art and handoffs | Physical 3D instruments sit on a sterile tray in the room. Picking requires a free hand; placement returns the held tool to its slot. Native labels and 3D ray picking share the same state. |
+| Bone and tissue | Generated material textures, physical lighting, bump detail and wrap-light tissue shader replace the old flat material treatment. Cut geometry and pressure deformation remain actual 3D. |
+| Responsive framing | Camera distance adapts to narrow aspect ratios so the cutting path fits. Menus scroll on short screens; tools and monitoring use compact variants. |
 
-**Independent harsh reviews and repairs**
+Intentional visual differences: atlas and authored runtime geometry replace photographic concept anatomy; the flap is a rigid game mesh; material removal is a height field; tissue response is a localized spring approximation. The physical tray and limited camera pan supersede the first concept’s instant inventory dock. Clearance replaces the concept's invented force number. Native guides wait for the camera to settle so target coordinates stay registered. See DESIGN.md for the complete deviation record. No claim of photographic fidelity or validated biomechanics is made.
 
-Gameplay and technical reviewers inspected source, screenshots, and an earlier live browser build. Their critiques led to these fixes:
+Above-the-fold copy audit: SUTURE, practice/room identity, Pause, current task and instructions, native progress steps, tool names, Help and monitoring are deliberate game UI. Bone-access instructions, assisted/manual depth controls, cutting/lifting feedback and room wayfinding are required additions to implement the user's later requests. One-tool handoffs, Place and Return to field controls implement the user’s later request for physical tool handling. No marketing/navigation sections were added.
 
-- Replaced the rejected dashboard UI with a full-screen scene and sparse game HUD.
-- Added a first-person room, pickup interactions, and a stable surgical transition following the user's direction.
-- Replaced a disconnected cortical strip with a continuous atlas-derived patch and added an exposure wall.
-- Replaced floating, reflective fluid fragments with registered surface layers.
-- Moved the tip marker from the ground projection to the actual visible tool tip.
-- Fixed bleeding freezing outside the field and a latched action on re-entry.
-- Fixed Escape resuming surgery behind a blocking menu.
-- Replaced nominal checkpoints with saved stage snapshots.
-- Cleared queued instrument motion on pause/focus loss/tool/camera changes.
-- Replaced sparse, misaligned shaft tests with tool-specific connected capsule chains, including separate bipolar tines and swept vessel checks.
-- Applied shaft injury even when the tip is outside the exposure.
-- Returned actual contact points for bleeding, treatment, and event records instead of using a potentially healthy tool-tip position.
-- Disabled the unfinished intermediate case and removed unsupported procedure-duration promises.
-- Corrected physical tool prompts, tray duplication, looking/proximity requirements, and room resource cleanup.
-- Improved small-screen objective contrast and brought replay controls ahead of the debrief.
+## Remaining limits
 
-One early player-agent action attempt was invalidated by concurrent live edits. It is not counted as a completion/failure or fairness test. Subsequent root browser runs used a frozen build while exercising each test.
+Hardware GPU performance, Safari/Firefox, clinical accuracy and novice enjoyment need human/device testing. Desktop mouse and keyboard are the complete room-control experience; surgery supports touch and hold. This version omits skin access, dura dissection, closure and full tissue resection. Remote Pages activation and the public URL must be checked separately from local production testing; a successful upload alone does not establish a live site.
 
-**Visual comparison ledger**
+## Independent review
 
-References:
+A user-requested subagent reviewed the release. Findings fixed: non-operative manual shaft contact while reaching/placing; checkpoint tool/model mismatch; hidden instrument geometry intercepting empty-slot placement; and header Resume allowing the simulation to run beneath a modal. Instrument pickup now raises the tip and clears depth trim. Retrying returns all instruments to the tray with a free hand.
 
-- Surgical HUD: `/workspace/generated_images/exec-b14fb567-ae90-4da4-bc42-fc98d1964ef2.png`.
-- First-person preparation: `/workspace/generated_images/exec-6fb1fdae-3462-4f30-a3d3-a22810c24813.png`.
-- Rejected dashboard reference is retained only as conversation history; it is not the active specification.
+## Release checks
 
-Both active references and the latest actual room/surgery browser screenshots were opened with `view_image` in the same comparison pass at 1672 × 941. Further screenshots check partial aspiration, failure, results, and portrait handling.
+The production interaction regression completed the full procedure with physical tray handoffs and reached the successful session review: precision 100/100, tissue injury 0%. The procedure timer recorded 00:44; this is game time, not the slower software-renderer wall time. The run collected no runtime, console or HTTP errors.
 
-| Comparison point | Actual implementation and remaining difference |
-| --- | --- |
-| Layout | Full-bleed scene, upper-left objective, upper-right timer/pause/audio, bottom controls and compact instrument selection match the sparse-game direction. Separate menus are necessary functional states. |
-| Typography | Sans-serif Barlow and monospaced data replace the rejected serif website treatment. Deliberately small controls need further human readability feedback. |
-| Palette | Dark teal drape, warm-white HUD, sage selection, and muted room materials follow the references. Actual room materials remain much simpler than the reference. |
-| Copy | Brand, instrument names, interaction hints, and objective hierarchy are preserved. Intentional additions cover first-person preparation, case brief, injuries, guide, pause/settings, and debrief. `TIP CLEARANCE` replaces ambiguous `DEPTH`; audio defaults off; unfinished content is visibly planned. No website navigation/hero/dashboard copy remains. |
-| Scene/asset treatment | All movement and operation use actual 3D scenes and tools. The generated photoreal concept is not used as a scene backdrop. This is an intentional functional adaptation, with a large remaining realism gap. |
-| Anatomy | Continuous tissue and texture improve on the original balloon-like result. Broad ridges, thin vessel shapes, a uniform bone rim, and stamped fluid regions remain conspicuously constructed. |
-| Room | A physical table, tray, microscope, lamps, storage, live monitor, and walking corridor establish a game space. Equipment detail, material variety, patient/hand art, lighting, and contact shadows still need production work. |
-| Responsive handling | Desktop HUD adapts; portrait blocks unsupported play and pauses safely. Touch surgery is outside this build. |
+The subagent independently confirmed the four review fixes, reran all 20 tests and checked the diff. A lightweight harness exercised the actual Engine frame logic for manual tray/empty-hand/pan injury guards, bleeding advancement and checkpoint hand restoration.
 
-The HUD and workflow have been verified against the revised direction. The anatomical and room art do **not** meet a 10/10 concept-fidelity or production-realism bar. A faithful-production claim would be inaccurate.
+Additional release checks passed at 1120×760, the concepts' native 1536×1024, 390×844 portrait and 844×390 landscape: room walking → pickup → microscope; assisted/manual toggles; help/pause; the full cutting path within the portrait canvas; and a real CDP touch-and-hold cut. Every runtime model/material request stayed under the repository subpath, the production debug API was absent, and no browser/HTTP errors were collected. A separate browser fixture confirmed the review guards for manual handoffs, bleeding, checkpoints and modal Resume.
 
-**Next iteration**
-
-1. Refine one anatomical exposure and one instrument to production-art quality before adding content: tissue form/materials, meaningful vascular anatomy, blood volume/visibility, realistic bone/tissue boundaries, and a readable working tip.
-2. Improve room models, contact lighting, material variation, and instrument/hand presentation while preserving the functional walking loop.
-3. Observe fresh human players learning depth and contact; revise input mapping and guidance from that evidence. Agent tests do not establish tactile feel or enjoyment.
-4. Profile a real GPU-backed desktop browser, tune loading/render settings, then extend browser coverage to Firefox and real Safari where available. Hosted software performance is not a hardware benchmark.
-5. Obtain qualified clinical review and resolve reference-asset redistribution before public release. Expand to the intermediate case only after the first case passes these gates.
-
-**Evidence**
-
-- `docs/qa/operating-room.png`: current preparation/room view.
-- `docs/qa/surgical-field.png`: current active surgical view.
-- `docs/qa/partial-aspiration.png`: an actual partial-removal state from the completion run.
-- `docs/qa/failure.png`: actual geometry-induced failure.
-- `docs/qa/portrait.png`: unsupported portrait state and safety pause.
-- `docs/qa/result-layout.png`: small-layout completed-state fixture for CTA visibility.
-
-Reproduce the longer hosted tests against the development server with `npm run qa` and `npm run qa:completion`. They use `/usr/bin/chromium` and write evidence under `/tmp/suture-qa`; adapt the executable path on other systems.
+Final 1536×1024 captures were compared with the recorded bone/tray concepts using `view_image`. The last render check confirmed room lighting, camera far range and another one-tool handoff without browser errors. The layout, task hierarchy, native controls, typography and palette were checked against the design; photographic anatomy and instrument arrangement remain the explicit 3D adaptations in DESIGN.md.

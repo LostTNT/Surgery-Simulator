@@ -16,3 +16,10 @@
 All or portions of this licensed product (such portions are the "Software") have been obtained under license from The General Hospital Corporation "MGH" and are subject to the following terms and conditions: [FreeSurfer Software License Agreement](licenses/FREESURFER.txt).
 
 The reference surface and this game are not approved clinical tools. No endorsement by MGH, FreeSurfer, Nilearn, their contributors, or their funding agencies is claimed.
+
+## October 2026 interactive redesign
+
+- `textures/cortex-detail.webp`: generated cerebral tissue albedo/bump artwork, mapped onto the modified atlas geometry. It adds illustrative fine detail and is not patient data.
+- `textures/bone.webp`: generated ivory bone material. The bone mesh, cut damage field, removed triangles, liftable flap, burr and debris are original interactive game geometry in `src/game/access.ts`.
+- Tissue deformation uses original local spring code in `src/game/soft-tissue.ts`; it is not a measured biomechanical material model.
+- Existing instrument artwork is used as a horizontal sprite strip, with native UI labels. All new task/target/path indicators are native UI.

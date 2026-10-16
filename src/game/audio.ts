@@ -39,7 +39,13 @@ export class SurgicalAudio {
       this.suction.start();
     }
     this.suction.frequency.setTargetAtTime(
-      tool === "bipolar" ? 220 : tool === "irrigation" ? 180 : 105,
+      tool === "drill"
+        ? 520
+        : tool === "bipolar"
+          ? 220
+          : tool === "irrigation"
+            ? 180
+            : 105,
       ctx.currentTime,
       0.08,
     );

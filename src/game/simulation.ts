@@ -1,4 +1,4 @@
-export type Tool = "suction" | "irrigation" | "bipolar";
+export type Tool = "suction" | "irrigation" | "bipolar" | "drill";
 export type Status = "ready" | "running" | "paused" | "success" | "failed";
 export type CaseId = "lab" | "case01" | "case02";
 export type Vec = [number, number, number];
@@ -74,7 +74,7 @@ export const CASES: Record<
     difficulty: "Practice",
     duration: "REPEATABLE",
     brief:
-      "Learn lateral movement, depth and the three instruments in a prepared practice field. Repeated attempts are encouraged.",
+      "Open a bone window with the burr, then clear and rinse a fictional practice field. Assisted depth helps you learn the instruments.",
   },
   case01: {
     name: "Extra-axial collection",
@@ -82,7 +82,7 @@ export const CASES: Record<
     difficulty: "Introductory",
     duration: "PREPARED FIELD",
     brief:
-      "A fictional patient with a localized extra-axial collection. This prototype begins after access is prepared and focuses on controlled fluid removal and field inspection. Anatomy and physiology are simplified.",
+      "Open the bone window, then remove a localized fluid collection with slower aspiration. Protect the soft surface and inspect the cleared field.",
   },
   case02: {
     name: "A narrower margin",
@@ -97,6 +97,12 @@ export const TOOLS: Record<
   Tool,
   { name: string; action: string; purpose: string }
 > = {
+  drill: {
+    name: "Bone burr",
+    action: "DRILLING",
+    purpose:
+      "Remove rigid bone along the marked path, then lift the freed flap.",
+  },
   suction: {
     name: "Suction",
     action: "ASPIRATING",
