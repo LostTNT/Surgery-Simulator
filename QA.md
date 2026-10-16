@@ -33,13 +33,15 @@ Above-the-fold copy audit: SUTURE, practice/room identity, Pause, current task a
 
 ## Remaining limits
 
-Hardware GPU performance, Safari/Firefox, clinical accuracy and novice enjoyment need human/device testing. Desktop mouse and keyboard are the complete room-control experience; surgery supports touch and hold. This version omits skin access, dura dissection, closure and full tissue resection. Remote Pages activation and the public URL must be checked separately from local production testing; a successful upload alone does not establish a live site.
+Hardware GPU performance, Safari/Firefox, clinical accuracy and novice enjoyment need human/device testing. Desktop mouse and keyboard are the complete room-control experience; surgery supports touch and hold. This version omits skin access, dura dissection, closure and full tissue resection.
 
 ## Independent review
 
 A user-requested subagent reviewed the release. Findings fixed: non-operative manual shaft contact while reaching/placing; checkpoint tool/model mismatch; hidden instrument geometry intercepting empty-slot placement; and header Resume allowing the simulation to run beneath a modal. Instrument pickup now raises the tip and clears depth trim. Retrying returns all instruments to the tray with a free hand.
 
 ## Release checks
+
+On October 16, 2026, the repository owner confirmed that https://losttnt.github.io/Surgery-Simulator/ works and shows the updated game. This is a user confirmation; the workspace's network policy prevents an automated check of the remote site.
 
 The production interaction regression completed the full procedure with physical tray handoffs and reached the successful session review: precision 100/100, tissue injury 0%. The procedure timer recorded 00:44; this is game time, not the slower software-renderer wall time. The run collected no runtime, console or HTTP errors.
 

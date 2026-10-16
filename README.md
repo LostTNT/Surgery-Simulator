@@ -2,7 +2,7 @@
 
 A browser surgical game with a walkable operating room and a complete guided procedure: pick up tools from a physical tray, carve a bone window, lift the flap, clear fluid, rinse, and inspect.
 
-Play address: **https://losttnt.github.io/Surgery-Simulator/** (GitHub Pages must be enabled for the repository; see [deployment](DEPLOYMENT.md)).
+Play online: **https://losttnt.github.io/Surgery-Simulator/**. The repository owner confirmed the updated game is live on October 16, 2026. See [deployment](DEPLOYMENT.md) for publishing updates.
 
 ```sh
 npm ci

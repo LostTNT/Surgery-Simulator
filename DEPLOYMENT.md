@@ -1,11 +1,12 @@
 # Play online with GitHub Pages
 
-The production build is prepared for the free GitHub Pages address:
-`https://losttnt.github.io/Surgery-Simulator/`.
+Play the live game at https://losttnt.github.io/Surgery-Simulator/.
+The repository owner confirmed that the site works and shows the updated game
+on October 16, 2026. No further activation is needed for this deployment.
 
-## One-time activation
+## One-time activation for a new deployment
 
-After the prepared `gh-pages` branch has been uploaded:
+If setting up Pages again, upload the prepared `gh-pages` branch, then:
 
 1. Open https://github.com/LostTNT/Surgery-Simulator/settings/pages
 2. Under **Build and deployment**, choose **Deploy from a branch**.
@@ -15,10 +16,10 @@ GitHub will publish the site; its build can take a few minutes. The page setting
 will show the live URL once deployment finishes. GitHub Free includes Pages for
 public repositories. No backend, server subscription, or custom domain is needed.
 
-The Git repository connection works in this workspace. The GitHub management API
-is blocked by its network policy, so activating Pages requires the one-time web
-settings change above. A successful Git push establishes uploaded files, not a
-live or verified Pages deployment.
+The Git repository connection works in this workspace. Its network policy blocks
+the GitHub management API and public Pages URL, so the live confirmation above
+comes from the repository owner. A successful Git push alone establishes uploaded
+files; check the public site after future deployments.
 
 ## Publish updates
 
