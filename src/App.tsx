@@ -17,6 +17,8 @@ const initial: Snapshot = {
   depthAssist: true,
   depthOffset: 0,
   targets: [],
+  bleedTarget: null,
+  workstationTarget: null,
   accessPhase: "bone",
   cutProgress: 0,
   cutGuide: [],
@@ -55,7 +57,8 @@ function savedProgress(): Partial<Record<CaseId, number>> {
 export default function App() {
   const field = useRef<HTMLDivElement>(null),
     engine = useRef<Engine | null>(null),
-    resumeAfterMenu = useRef(false);
+    resumeAfterMenu = useRef(false),
+    returnToWorkstation = useRef(false);
   const [view, setView] = useState<Snapshot>(initial),
     [overlay, setOverlay] = useState<Overlay>("none"),
     [progress, setProgress] = useState(savedProgress),
@@ -68,12 +71,26 @@ export default function App() {
   const menuOpen = overlay !== "none" || !playing;
   const caseInfo = CASES[view.caseId];
   function close() {
+    if (returnToWorkstation.current) {
+      returnToWorkstation.current = false;
+      setOverlay("cases");
+      return;
+    }
     setOverlay("none");
     if (resumeAfterMenu.current) engine.current?.resume();
     resumeAfterMenu.current = false;
   }
   function open(which: Overlay) {
-    if (overlay === "none") resumeAfterMenu.current = playing;
+    if (overlay === "none") {
+      resumeAfterMenu.current = playing;
+      returnToWorkstation.current = false;
+    }
+    if (overlay === "cases" && (which === "guide" || which === "settings"))
+      returnToWorkstation.current = true;
+    if (which === "cases") {
+      setSelected(view.caseId);
+      returnToWorkstation.current = false;
+    }
     engine.current?.pause();
     setOverlay(which);
   }
@@ -95,12 +112,14 @@ export default function App() {
     }
   }, []);
   useEffect(() => {
-    if (engine.current)
+    if (engine.current) {
+      engine.current.onWorkstationRequest = () => open("cases");
       engine.current.onPauseRequest = () => {
         if (overlay !== "none") close();
         else if (playing) engine.current?.pause();
         else if (paused) engine.current?.resume();
       };
+    }
   });
   useEffect(() => {
     if (view.status !== "success") return;
@@ -127,8 +146,14 @@ export default function App() {
   }
   function chooseCase() {
     engine.current?.setCase(selected);
+    engine.current?.startSurgery();
     resumeAfterMenu.current = false;
     setOverlay("none");
+  }
+  function returnToRoom() {
+    resumeAfterMenu.current = false;
+    setOverlay("none");
+    engine.current?.startRoom();
   }
   const title =
     overlay === "guide"
@@ -136,17 +161,17 @@ export default function App() {
       : overlay === "settings"
         ? "Make it your own."
         : overlay === "cases"
-          ? "Choose your next case."
+          ? "Case workstation"
           : failed
             ? "Take a breath. Try again."
             : result
               ? "A controlled finish."
               : paused
                 ? "Take your time."
-                : caseInfo.name;
+                : "Your operating room.";
   return (
     <main
-      className={`game ${menuOpen ? "has-menu" : "is-playing"} ${view.location === "room" ? "in-room" : ""}`}
+      className={`game ${menuOpen ? "has-menu" : "is-playing"} ${view.location === "room" ? "in-room" : ""} ${overlay === "cases" ? "workstation-open" : ""}`}
     >
       <div ref={field} className="operative-field" />
       <div className="lens-shade" aria-hidden="true" />
@@ -173,16 +198,17 @@ export default function App() {
             <Icon name={view.sound ? "sound" : "mute"} />
           </button>
           <time>{clock(view.elapsed)}</time>
-          <button
-            className="pause-button"
-            disabled={overlay !== "none" || (!playing && !paused)}
-            onClick={() =>
-              playing ? engine.current?.pause() : engine.current?.resume()
-            }
-          >
-            <Icon name="pause" size={15} />
-            <span>{playing ? "Pause" : "Resume"}</span>
-          </button>
+          {overlay === "none" && (playing || paused) && (
+            <button
+              className="pause-button"
+              onClick={() =>
+                playing ? engine.current?.pause() : engine.current?.resume()
+              }
+            >
+              <Icon name="pause" size={15} />
+              <span>{playing ? "Pause" : "Resume"}</span>
+            </button>
+          )}
         </div>
       </header>
       {!menuOpen && (
@@ -198,8 +224,10 @@ export default function App() {
           onTray={() => engine.current?.toggleTray()}
           onPlace={() => engine.current?.placeTool()}
           onLift={() => engine.current?.liftBone()}
+          onInspect={() => engine.current?.beginInspection()}
           onInteract={() => engine.current?.interactRoom()}
           onSkip={() => engine.current?.startSurgery()}
+          onWorkstation={() => engine.current?.openWorkstation()}
         />
       )}
       {menuOpen && <div className="menu-scrim" />}
@@ -223,33 +251,33 @@ export default function App() {
       )}
       {view.loaded && !view.error && menuOpen && (
         <section
-          className={`menu-panel ${overlay === "guide" ? "guide-panel" : ""}`}
+          className={`menu-panel ${overlay === "guide" ? "guide-panel" : ""} ${overlay === "cases" ? "workstation-panel" : ""}`}
           role="dialog"
           aria-modal="true"
           aria-label={title}
         >
-          {overlay !== "none" && (
+          {overlay !== "none" && overlay !== "cases" && (
             <button className="back-button" onClick={close}>
               <Icon name="arrow" size={16} />
-              Back
+              {returnToWorkstation.current ? "Back to workstation" : "Back"}
             </button>
           )}
-          <h1>{title}</h1>
+          {overlay !== "cases" && <h1>{title}</h1>}
           {overlay === "none" && ready && (
             <>
               <p className="menu-description">
-                Open the bone window, clear four fluid pockets, and rinse the
-                field. A complete procedure, one clear task at a time.
+                Choose a procedure at the case workstation, pick up your
+                instruments, and step up to the microscope.
               </p>
               <ol className="brief-objectives">
                 <li>
-                  <span>01</span>Aim directly with your mouse
+                  <span>01</span>Explore your operating room
                 </li>
                 <li>
-                  <span>02</span>Pick up one tool at a time
+                  <span>02</span>Choose from four playable procedures
                 </li>
                 <li>
-                  <span>03</span>Follow the next task on screen
+                  <span>03</span>Follow one clear task at a time
                 </li>
               </ol>
               <label className="toggle-row">
@@ -268,16 +296,16 @@ export default function App() {
               </label>
               <button
                 className="primary-button"
-                onClick={() => engine.current?.startSurgery()}
+                onClick={() => engine.current?.startRoom()}
               >
-                Start surgery
+                Enter operating room
                 <Icon name="arrow" />
               </button>
               <button
                 className="secondary-button"
-                onClick={() => engine.current?.startRoom()}
+                onClick={() => engine.current?.startSurgery()}
               >
-                Explore operating room
+                Start surgery
                 <Icon name="arrow" size={17} />
               </button>
               <div className="menu-links">
@@ -334,26 +362,25 @@ export default function App() {
             </>
           )}
           {overlay === "cases" && (
-            <>
+            <div className="workstation-screen">
+              <div className="workstation-status"><span />SUTURE / PROCEDURE LIBRARY<span>ONLINE</span></div>
+              <h1>Case workstation</h1>
               <p className="menu-description">
-                Practice at your own pace, then take on a more demanding
-                collection.
+                Select a procedure to prepare your surgical field.
               </p>
               <div className="case-list">
-                {(["lab", "case01"] as CaseId[]).map((id, i) => (
+                {(Object.keys(CASES) as CaseId[]).map((id) => (
                   <button
                     key={id}
                     aria-pressed={selected === id}
                     className={`case-row ${selected === id ? "chosen" : ""}`}
                     onClick={() => setSelected(id)}
                   >
-                    <span className="case-index">0{i + 1}</span>
+                    <span className="case-index">{id === "lab" ? "LAB" : id.slice(4)}</span>
                     <span>
                       <strong>{CASES[id].name}</strong>
                       <small>
-                        {i === 0
-                          ? "Practice · about 1 minute"
-                          : "Challenge · slower aspiration"}
+                        {CASES[id].difficulty} · {CASES[id].pockets.length} pockets
                       </small>
                     </span>
                     {progress[id] !== undefined ? (
@@ -368,16 +395,32 @@ export default function App() {
                 ))}
               </div>
               <p className="case-detail">{CASES[selected].brief}</p>
+              <ol className="workstation-objectives">
+                {CASES[selected].objectives.map((objective, i) => (
+                  <li key={objective.title} title={objective.detail}>
+                    <span>{i + 1}</span>
+                    <strong>{objective.title}</strong>
+                  </li>
+                ))}
+              </ol>
               <button className="primary-button" onClick={chooseCase}>
-                Prepare case
+                Prepare & start surgery
                 <Icon name="arrow" />
               </button>
-            </>
+              <button className="secondary-button" onClick={returnToRoom}>
+                Return to room
+              </button>
+              <footer className="workstation-footer">
+                <span>Fictional surgical game</span>
+                <button onClick={() => open("guide")}>How to play</button>
+                <button onClick={() => open("settings")}>Settings</button>
+              </footer>
+            </div>
           )}
           {overlay === "guide" && (
             <>
               <p className="menu-description">
-                One goal at a time. There’s no countdown.
+                Follow the current task. Pause whenever you need.
               </p>
               <div className="guide-controls">
                 {[
@@ -399,7 +442,7 @@ export default function App() {
                   ],
                   [
                     "WASD / E",
-                    "In the room: walk, click to look around, and press E at the tray or microscope. Arrow keys can also look.",
+                    "In the room: walk with WASD. Click the case monitor or press E nearby. Click elsewhere to look around; E also uses the tray or microscope. Arrow keys can look.",
                   ],
                   [
                     "ESC",
@@ -414,13 +457,16 @@ export default function App() {
               </div>
               <div className="guide-note">
                 <strong>Your procedure</strong>
+                <ol className="guide-procedure">
+                  <li>Trace the dotted bone path with the burr, then lift the flap.</li>
+                  <li>If bleeding is marked, use bipolar on that source first.</li>
+                  <li>Use suction on every numbered fluid pocket.</li>
+                  <li>Rinse with irrigation until the clarity target is met.</li>
+                  <li>Click Examine field, then leave the tools idle for 2.5 seconds.</li>
+                </ol>
                 <p>
-                  1. Trace the dotted bone path with the burr, then lift the
-                  flap.
-                  <br />
-                  2. Suction all four numbered fluid pockets.
-                  <br />
-                  3. Irrigate until clear, then release to inspect.
+                  The Examine checklist shows exactly what is left. Releasing
+                  a tool stops operating; it does not start the final examination.
                 </p>
                 <p>
                   Bone is rigid and can be carved away. Tissue yields under
@@ -559,7 +605,7 @@ export default function App() {
           )}
         </section>
       )}
-      {menuOpen && view.loaded && (
+      {menuOpen && view.loaded && overlay !== "cases" && (
         <footer className="menu-bottom">
           <span>Fictional surgical game · Not medical training</span>
           <div>

@@ -1,5 +1,13 @@
 import type { Snapshot } from "../game/engine";
-import { fluidProgress, TOOLS, type Tool } from "../game/simulation";
+import {
+  CASES,
+  fluidProgress,
+  inspectionReady,
+  INSPECTION_SECONDS,
+  POCKET_CLEAR_THRESHOLD,
+  TOOLS,
+  type Tool,
+} from "../game/simulation";
 import { Icon } from "./Icons";
 
 export function GameHud({
@@ -12,6 +20,8 @@ export function GameHud({
   onLift,
   onTray,
   onPlace,
+  onInspect,
+  onWorkstation,
 }: {
   view: Snapshot;
   onTool: (tool: Tool) => void;
@@ -22,27 +32,40 @@ export function GameHud({
   onSkip: () => void;
   onTray: () => void;
   onPlace: () => void;
+  onInspect: () => void;
+  onWorkstation: () => void;
 }) {
   const room = view.location === "room",
     opening = view.accessPhase !== "surgery",
-    cutReady = view.cutProgress >= 0.97;
-  const step = opening ? 0 : view.stage < 2 ? 1 : view.clarity > 0.88 ? 3 : 2;
-  const required: Tool = opening
+    cutReady = view.cutProgress >= 0.97,
+    caseInfo = CASES[view.caseId],
+    cleared = view.pockets.filter((p) => p.remaining <= POCKET_CLEAR_THRESHOLD).length,
+    collectionClear = cleared === view.pockets.length,
+    rinsed = view.clarity >= caseInfo.clarityRequired,
+    bleedingControlled = view.sourceControlled && view.bleeding < 0.025,
+    needsBipolar = !bleedingControlled,
+    canExamine = !opening && inspectionReady(view),
+    examining = view.inspectionActive,
+    showControlStep = caseInfo.initialBleeding > 0 || needsBipolar;
+  const step = opening ? 0 : !collectionClear || needsBipolar ? 1 : !rinsed ? 2 : 3;
+  const required: Tool | null = opening
     ? "drill"
-    : view.bleeding > 0.025
+    : needsBipolar
       ? "bipolar"
       : step === 1
         ? "suction"
-        : "irrigation";
+        : step === 2 ? "irrigation" : null;
   const current = view.heldTool ? TOOLS[view.heldTool].name : "";
   const percent = Math.round(
     (opening
       ? view.cutProgress
-      : step === 1
+      : needsBipolar
+        ? Math.max(0, 1 - view.bleeding / Math.max(caseInfo.initialBleeding, 0.15))
+        : step === 1
         ? fluidProgress(view)
         : step === 2
-          ? view.clarity
-          : Math.min(1, view.inspectionTime / 2.5)) * 100,
+          ? Math.min(1, view.clarity / caseInfo.clarityRequired)
+          : Math.min(1, view.inspectionTime / INSPECTION_SECONDS)) * 100,
   );
   const titles = [
     view.accessPhase === "lifting"
@@ -52,7 +75,7 @@ export function GameHud({
         : "Open the bone window",
     "Clear the collection",
     "Rinse the field",
-    "Release to inspect",
+    examining ? "Examining the field…" : "Examine the field",
   ];
   const details = [
     cutReady
@@ -60,34 +83,53 @@ export function GameHud({
       : "Hold the burr along the dotted path. Move slowly to cut through.",
     "Aim at a numbered pocket. Hold to remove fluid.",
     "Pick up irrigation. Hold over the field to rinse.",
-    "Release the tool. Keep the field still for inspection.",
+    examining
+      ? "Keep instruments idle while the final check completes."
+      : "All checks are ready. Click Examine field to finish the procedure.",
   ];
   const title = room
     ? view.heldTool
       ? "Approach the microscope"
-      : "Prepare your station"
+      : "Choose your procedure"
     : view.trayView
       ? view.heldTool
         ? "Place your tool on the tray"
         : "Pick up an instrument"
-      : !view.heldTool && !cutReady
+      : examining
+        ? titles[3]
+        : needsBipolar && !opening
+          ? "Control the bleeding source"
+      : !view.heldTool && required && !(opening && cutReady)
         ? "Pick up " + TOOLS[required].name
         : titles[step];
   const detail = room
     ? view.heldTool
       ? "Walk to the patient’s head. Press E to enter surgery."
-      : "Walk to the instrument tray on your right. Press E to collect."
+      : "Walk to the lit case workstation. Click its screen or press E to choose a surgery."
     : view.trayView
       ? view.heldTool
         ? `Set down ${current} to free your hand. One instrument at a time.`
-        : `Choose ${TOOLS[required].name}, or click an instrument on the tray.`
-      : !view.heldTool && !cutReady
+        : required
+          ? `Choose ${TOOLS[required].name} for the next task.`
+          : "The field is ready. Return to the field to examine it."
+      : examining
+        ? details[3]
+      : !view.heldTool && required && !(opening && cutReady)
         ? "Press T or click Instrument tray to reach your tools."
-        : view.heldTool && view.heldTool !== required && step < 3
+        : view.heldTool && required && view.heldTool !== required
           ? `Return ${current} to the tray and pick up ${TOOLS[required].name}.`
-          : view.bleeding > 0.025
-            ? "Pick up bipolar and treat the marked bleeding source."
+          : needsBipolar && !opening
+            ? "Hold bipolar on the marked source until bleeding stops."
             : details[step];
+  const steps = [
+    { label: "Open", done: !opening, active: opening },
+    ...(showControlStep
+      ? [{ label: "Control", done: bleedingControlled, active: !opening && needsBipolar }]
+      : []),
+    { label: "Clear", done: collectionClear, active: !opening && !needsBipolar && !collectionClear },
+    { label: "Rinse", done: rinsed, active: !opening && !needsBipolar && collectionClear && !rinsed },
+    { label: "Examine", done: false, active: !opening && canExamine },
+  ];
   return (
     <>
       <section className="objective" aria-live="polite">
@@ -96,13 +138,13 @@ export function GameHud({
         {!room && (
           <>
             <ol className="procedure-steps">
-              {["Open", "Clear", "Rinse", "Inspect"].map((label, i) => (
+              {steps.map(({ label, active, done }, i) => (
                 <li
                   key={label}
-                  className={i === step ? "current" : i < step ? "done" : ""}
+                  className={active ? "current" : done ? "done" : ""}
                 >
                   <span>
-                    {i < step ? <Icon name="check" size={13} /> : i + 1}
+                    {done ? <Icon name="check" size={13} /> : i + 1}
                   </span>
                   <small>{label}</small>
                 </li>
@@ -112,11 +154,13 @@ export function GameHud({
               <span>
                 {opening
                   ? "Bone cutting path"
+                  : needsBipolar
+                    ? "Bleeding controlled"
                   : step === 1
-                    ? `${view.pockets.filter((p) => p.remaining < 0.015).length} / 4 pockets cleared`
+                    ? `${cleared} / ${view.pockets.length} pockets cleared`
                     : step === 2
-                      ? "Field clarity"
-                      : "Inspection"}
+                      ? `Rinse · target ${Math.round(caseInfo.clarityRequired * 100)}% clarity`
+                      : examining ? "Examination in progress" : "Examination not started"}
               </span>
               <strong>{percent}%</strong>
               <i>
@@ -129,7 +173,7 @@ export function GameHud({
       {room ? (
         <>
           <div className="room-crosshair" />
-          {view.roomWaypoint && (
+          {view.roomWaypoint && (view.heldTool || !view.workstationTarget) && (
             <div
               className="room-waypoint"
               style={{ left: view.roomWaypoint.x, top: view.roomWaypoint.y }}
@@ -152,6 +196,15 @@ export function GameHud({
               <span>{view.roomPrompt}</span>
             </button>
           )}
+          {view.workstationTarget && (
+            <button
+              className="workstation-interaction"
+              style={{ left: view.workstationTarget.x, top: view.workstationTarget.y }}
+              onClick={onWorkstation}
+            >
+              Use case workstation<Icon name="arrow" size={14} />
+            </button>
+          )}
           <button className="skip-room" onClick={onSkip}>
             Go straight to surgery
             <Icon name="arrow" size={16} />
@@ -164,8 +217,7 @@ export function GameHud({
               view.traySlots.map((slot, i) => (
                 <button
                   key={slot.tool}
-                  className={`tray-tool-pick ${view.heldTool === slot.tool ? "empty-slot" : ""}`}
-                  style={{ left: slot.x, top: slot.y }}
+                  className={`tray-tool-pick ${view.heldTool === slot.tool ? "empty-slot" : ""} ${required === slot.tool ? "next-tool" : ""}`}
                   disabled={view.heldTool !== null}
                   onClick={() => onTool(slot.tool)}
                   aria-label={`Pick up ${TOOLS[slot.tool].name}`}
@@ -178,7 +230,7 @@ export function GameHud({
                         ? "In your hand"
                         : view.heldTool
                           ? "Place your tool first"
-                          : "Pick up"}
+                          : required === slot.tool ? "Next task · pick up" : "Pick up"}
                     </small>
                   </span>
                 </button>
@@ -223,30 +275,80 @@ export function GameHud({
                 })}
               </svg>
             )}
-          <div className="target-layer" aria-hidden="true">
+          <div className="target-layer">
             {!opening &&
               !view.cameraMoving &&
               view.guided &&
               view.targets.map((p, i) => (
                 <div
                   key={i}
+                  aria-hidden="true"
                   style={{ left: p.x, top: p.y }}
-                  className={`target-marker ${p.remaining < 0.015 ? "cleared" : ""}`}
+                  className={`target-marker ${p.remaining <= POCKET_CLEAR_THRESHOLD ? "cleared" : ""}`}
                 >
                   <span>
-                    {p.remaining < 0.015 ? (
+                    {p.remaining <= POCKET_CLEAR_THRESHOLD ? (
                       <Icon name="check" size={14} />
                     ) : (
                       i + 1
                     )}
                   </span>
-                  {view.action && p.remaining > 0.015 && p.remaining < 0.97 && (
+                  {view.action && p.remaining > POCKET_CLEAR_THRESHOLD && p.remaining < 0.97 && (
                     <small>{Math.round((1 - p.remaining) * 100)}%</small>
                   )}
                 </div>
               ))}
+            {!opening && !view.cameraMoving && view.bleedTarget && view.bleeding >= 0.025 && (
+              <div
+                className="bleed-marker"
+                style={{ left: view.bleedTarget.x, top: view.bleedTarget.y }}
+                role="img"
+                aria-label="Bleeding source. Use bipolar on the marked point."
+              >
+                <i />
+                <span>Bleeding source<small>Use bipolar here</small></span>
+              </div>
+            )}
           </div>
-          {view.heldTool && (
+          {!opening && (
+            <section
+              className={`examine-panel ${canExamine ? "is-ready" : ""} ${examining ? "is-examining" : ""}`}
+              aria-label="Final examination checklist"
+            >
+              <div className="examine-heading">
+                <strong>Final examination</strong>
+                <span>{examining ? "Checking…" : canExamine ? "Ready" : "Preparation"}</span>
+              </div>
+              <ul className="examine-checklist">
+                {[
+                  { done: collectionClear, label: `${cleared}/${view.pockets.length} pockets cleared` },
+                  { done: rinsed, label: `Rinsed · ${Math.round(view.clarity * 100)}/${Math.round(caseInfo.clarityRequired * 100)}% clarity` },
+                  { done: bleedingControlled, label: bleedingControlled ? "Bleeding controlled" : "Control bleeding with bipolar" },
+                ].map(({ done, label }) => (
+                  <li key={label} className={done ? "complete" : ""}>
+                    <span>{done ? <Icon name="check" size={12} /> : <i />}</span>
+                    {label}
+                  </li>
+                ))}
+              </ul>
+              <button
+                className="examine-button"
+                onClick={onInspect}
+                disabled={!canExamine || examining}
+              >
+                {examining ? `Examining · ${percent}%` : "Examine field"}
+                {examining ? <span className="examine-spinner" /> : <kbd>E</kbd>}
+              </button>
+              <p>
+                {examining
+                  ? "Leave tools idle. Operating cancels this check."
+                  : canExamine
+                    ? "Start a 2.5-second check with instruments safely lifted."
+                    : "Complete all three checks to examine the field."}
+              </p>
+            </section>
+          )}
+          {view.heldTool && !examining && (
             <aside className="depth-control">
               <button onClick={onDepth}>
                 <span
@@ -313,7 +415,7 @@ export function GameHud({
                 </>
               )}
             </div>
-          ) : (
+          ) : !examining && !canExamine ? (
             <div
               className={`field-feedback ${view.feedback.kind}`}
               aria-live="polite"
@@ -323,9 +425,7 @@ export function GameHud({
                 <strong>
                   {view.action
                     ? TOOLS[view.tool].action.toLowerCase()
-                    : step === 3
-                      ? "Inspecting the field…"
-                      : !view.heldTool
+                    : !view.heldTool
                         ? "Your hand is empty"
                         : "Ready when you are"}
                 </strong>
@@ -338,7 +438,7 @@ export function GameHud({
                 </span>
               </div>
             </div>
-          )}
+          ) : null}
         </>
       )}
       <footer className="hud-bottom">
@@ -371,7 +471,7 @@ export function GameHud({
         {room ? (
           <div className="held-instrument">
             <span>{view.heldTool ? "IN HAND" : "HANDS FREE"}</span>
-            <strong>{current || "Find the instrument tray"}</strong>
+            <strong>{current || "Choose a case at the workstation"}</strong>
           </div>
         ) : (
           <div className="vitals" aria-label="Simulated patient monitoring">

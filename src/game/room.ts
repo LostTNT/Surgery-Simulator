@@ -1,17 +1,18 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { TOOLS, type Tool } from "./simulation";
+import { CASES, TOOLS, type CaseId, type Tool } from "./simulation";
 
 export class OperatingRoom {
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(64, 1, 0.04, 35);
-  position = new THREE.Vector3(1.6, 1.65, 2.5);
-  yaw = 0.43;
+  position = new THREE.Vector3(1.85, 1.65, 2.65);
+  yaw = 0.16;
   pitch = -0.09;
   keys = new Set<string>();
   held: THREE.Group | null = null;
   prompt = "";
   nearTray = false;
+  nearWorkstation = false;
   canOperate = false;
   lookDragging = false;
   monitorTexture: THREE.CanvasTexture;
@@ -21,12 +22,25 @@ export class OperatingRoom {
   trayTools: Partial<Record<Tool, THREE.Group>> = {};
   trayPosition = new THREE.Vector3(1.45, 1, 0.15);
   scopePosition = new THREE.Vector3(0.05, 1.3, -1.1);
+  workstationPosition = new THREE.Vector3(2.65, 1.48, -0.65);
+  workstationTexture: THREE.CanvasTexture;
+  workstationContext: CanvasRenderingContext2D;
+  workstationScreen: THREE.Mesh;
+  workstationCase: CaseId = "lab";
   constructor(environment: THREE.Texture, drape: THREE.Texture) {
-    this.scene.background = new THREE.Color(0x2a3434);
+    this.scene.background = new THREE.Color(0x111c22);
     this.scene.environment = environment;
     const white = new THREE.MeshStandardMaterial({
       color: 0xd9e0dd,
       roughness: 0.55,
+    });
+    const wall = new THREE.MeshStandardMaterial({
+      color: 0x71848a,
+      roughness: 0.86,
+    });
+    const ceiling = new THREE.MeshStandardMaterial({
+      color: 0x586c77,
+      roughness: 0.9,
     });
     const steel = new THREE.MeshStandardMaterial({
       color: 0x8b999a,
@@ -42,13 +56,18 @@ export class OperatingRoom {
       roughness: 0.42,
     });
     const green = new THREE.MeshStandardMaterial({
-      color: 0x3e635e,
+      color: 0x2b4849,
       roughness: 0.78,
     });
     const emit = new THREE.MeshStandardMaterial({
       color: 0xfff5dd,
       emissive: 0xffefd4,
-      emissiveIntensity: 2,
+      emissiveIntensity: 4,
+    });
+    const practicalEmit = new THREE.MeshStandardMaterial({
+      color: 0x9ab5be,
+      emissive: 0x91b5c4,
+      emissiveIntensity: 0.48,
     });
     const cloth = drape.clone();
     cloth.repeat.set(2, 3);
@@ -139,7 +158,7 @@ export class OperatingRoom {
       0.1,
       9,
       new THREE.MeshStandardMaterial({
-        color: 0x60716e,
+        color: 0x405651,
         roughness: 0.32,
         metalness: 0.12,
       }),
@@ -168,34 +187,30 @@ export class OperatingRoom {
         i,
       );
     box(8, 1.2, 0.1, green, 0, 0.6, -4.4);
-    box(8, 2, 0.1, white, 0, 2.2, -4.4);
+    box(8, 2, 0.1, wall, 0, 2.2, -4.4);
     for (const x of [-4, 4]) {
       box(0.1, 1.2, 9, green, x, 0.6, 0);
-      box(0.1, 2, 9, white, x, 2.2, 0);
+      box(0.1, 2, 9, wall, x, 2.2, 0);
     }
-    box(8, 3.3, 0.1, white, 0, 1.65, 4.5);
-    box(8, 0.1, 9, white, 0, 3.3, 0);
+    box(8, 3.3, 0.1, wall, 0, 1.65, 4.5);
+    box(8, 0.1, 9, ceiling, 0, 3.3, 0);
     for (let x = -3; x <= 3; x += 1.5)
       for (let z = -3; z < 4; z += 1.5) {
         box(0.015, 0.01, 1.5, steel, x, 3.24, z);
         box(1.5, 0.01, 0.015, steel, x + 0.75, 3.24, z - 0.75);
       }
     for (const x of [-2, 2])
-      for (const z of [-2, 2]) box(0.9, 0.025, 0.55, emit, x, 3.22, z);
-    this.scene.add(new THREE.HemisphereLight(0xeaf4f8, 0x34433e, 1.45));
-    this.scene.environmentIntensity = 0.75;
-    const key = new THREE.SpotLight(0xfff0df, 46, 10, Math.PI / 3, 0.7, 2);
-    key.position.set(-1, 2.95, 0);
-    key.target.position.set(0, 0.8, -0.3);
-    key.castShadow = true;
-    key.shadow.mapSize.set(2048, 2048);
-    key.shadow.normalBias = 0.015;
-    key.shadow.radius = 4;
-    key.shadow.bias = -0.0004;
-    this.scene.add(key, key.target);
-    const fill = new THREE.PointLight(0xc7e5f1, 21, 10, 2);
+      for (const z of [-2, 2])
+        box(0.9, 0.025, 0.55, practicalEmit, x, 3.22, z);
+    // Cool, dim room light keeps the equipment readable around the warm field.
+    this.scene.add(new THREE.HemisphereLight(0xa9c4d6, 0x273331, 0.28));
+    this.scene.environmentIntensity = 0.09;
+    const fill = new THREE.PointLight(0xa1c9df, 2.8, 9, 2);
     fill.position.set(2.4, 2.8, 2);
     this.scene.add(fill);
+    const rearFill = new THREE.PointLight(0x94b4c8, 1.4, 7, 2);
+    rearFill.position.set(-2.7, 2.5, -2.6);
+    this.scene.add(rearFill);
     // Adjustable table, support and foot-end hardware.
     box(0.55, 0.16, 1.2, steel, 0, 0.15, 0);
     box(0.28, 0.5, 0.45, steel, 0, 0.45, 0);
@@ -384,9 +399,34 @@ export class OperatingRoom {
       );
       const lamp = new THREE.Group();
       lamp.position.copy(center);
-      lamp.rotation.z = side * 0.22;
-      lamp.rotation.x = 0.18;
+      const surgicalTarget = new THREE.Vector3(0, 1.12, -1.02);
+      const lampDirection = surgicalTarget.clone().sub(center).normalize();
+      lamp.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, -1, 0),
+        lampDirection,
+      );
       this.scene.add(lamp);
+      // The actual emitter sits just below the face of the visible lamp head.
+      const surgicalLight = new THREE.SpotLight(
+        0xfff5e8,
+        side === -1 ? 31 : 25,
+        5,
+        0.37,
+        0.55,
+        2,
+      );
+      surgicalLight.position.copy(center).add(
+        new THREE.Vector3(side * 0.15, -0.075, 0).applyQuaternion(lamp.quaternion),
+      );
+      surgicalLight.target.position.copy(surgicalTarget);
+      surgicalLight.castShadow = true;
+      surgicalLight.shadow.mapSize.set(1024, 1024);
+      surgicalLight.shadow.camera.near = 0.1;
+      surgicalLight.shadow.camera.far = 5;
+      surgicalLight.shadow.normalBias = 0.008;
+      surgicalLight.shadow.bias = -0.0002;
+      surgicalLight.shadow.radius = 3;
+      this.scene.add(surgicalLight, surgicalLight.target);
       add(
         new THREE.CylinderGeometry(0.37, 0.39, 0.075, 56),
         white,
@@ -538,6 +578,37 @@ export class OperatingRoom {
         1.405,
         -0.235,
       );
+    // Separate case workstation: a readable physical screen beside the table.
+    // Its face points toward the entrance; it never replaces the vitals display.
+    const workstationCanvas = document.createElement("canvas");
+    workstationCanvas.width = 1280;
+    workstationCanvas.height = 896;
+    this.workstationContext = workstationCanvas.getContext("2d")!;
+    this.workstationTexture = new THREE.CanvasTexture(workstationCanvas);
+    this.workstationTexture.colorSpace = THREE.SRGBColorSpace;
+    this.workstationTexture.anisotropy = 4;
+    box(1.18, 0.87, 0.105, dark, 2.65, 1.48, -0.72);
+    box(1.09, 0.78, 0.018, black, 2.65, 1.49, -0.658);
+    this.workstationScreen = add(
+      new THREE.PlaneGeometry(1.035, 0.725),
+      new THREE.MeshBasicMaterial({ map: this.workstationTexture, toneMapped: false }),
+      2.65,
+      1.49,
+      -0.645,
+    );
+    box(0.12, 0.8, 0.12, steel, 2.65, 0.75, -0.76);
+    box(0.8, 0.055, 0.65, dark, 2.65, 0.17, -0.68);
+    box(1.08, 0.055, 0.52, steel, 2.65, 0.99, -0.5);
+    box(0.7, 0.018, 0.24, black, 2.58, 1.027, -0.45);
+    // Restrained keyboard grooves, enough to read as a computer cart.
+    for (let row = 0; row < 4; row++)
+      box(0.63, 0.002, 0.006, steel, 2.58, 1.038, -0.54 + row * 0.055);
+    for (const x of [2.34, 2.96])
+      for (const z of [-0.9, -0.44]) wheel(x, z);
+    const workstationGlow = new THREE.PointLight(0x74bcca, 0.55, 1.4, 2);
+    workstationGlow.position.set(2.65, 1.52, -0.3);
+    this.scene.add(workstationGlow);
+    this.setCase(this.workstationCase);
     const clock = document.createElement("canvas");
     clock.width = 256;
     clock.height = 256;
@@ -622,6 +693,66 @@ export class OperatingRoom {
     this.pitch = THREE.MathUtils.clamp(this.pitch - dy * 0.002, -1.15, 1.15);
     this.updateCamera();
   }
+  isWorkstationHit(ray: THREE.Raycaster) {
+    this.workstationScreen.updateWorldMatrix(true, false);
+    return ray.intersectObject(this.workstationScreen, false).some(
+      (hit) => hit.distance < 4.5,
+    );
+  }
+  setCase(id: CaseId) {
+    this.workstationCase = id;
+    const ctx = this.workstationContext;
+    const current = CASES[id];
+    ctx.fillStyle = "#101d25";
+    ctx.fillRect(0, 0, 1280, 896);
+    ctx.fillStyle = "#82c5c8";
+    ctx.fillRect(0, 0, 1280, 8);
+    ctx.font = "600 31px sans-serif";
+    ctx.fillText("CASE WORKSTATION", 58, 74);
+    ctx.fillStyle = "#78929e";
+    ctx.font = "23px sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillText("OPERATING ROOM 04", 1220, 74);
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#edf2f1";
+    ctx.font = "500 49px sans-serif";
+    ctx.fillText("Choose your procedure", 58, 153);
+    ctx.fillStyle = "#1c333e";
+    ctx.fillRect(58, 188, 1164, 130);
+    ctx.fillStyle = "#89c4c1";
+    ctx.font = "600 22px sans-serif";
+    ctx.fillText("CURRENTLY ASSIGNED", 82, 227);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "500 36px sans-serif";
+    ctx.fillText(current.name, 82, 281);
+    const cases = Object.entries(CASES) as [CaseId, (typeof CASES)[CaseId]][];
+    const rowHeight = Math.min(68, 408 / cases.length);
+    cases.forEach(([caseId, procedure], index) => {
+      const y = 350 + index * rowHeight;
+      const selected = caseId === id;
+      ctx.fillStyle = selected ? "#284650" : "#172832";
+      ctx.fillRect(58, y, 1164, rowHeight - 8);
+      ctx.fillStyle = selected ? "#a2dbd1" : "#708c99";
+      ctx.font = "600 20px sans-serif";
+      ctx.fillText(procedure.label.toUpperCase(), 80, y + rowHeight * 0.57);
+      ctx.fillStyle = selected ? "#ffffff" : "#d3dfe1";
+      ctx.font = "25px sans-serif";
+      ctx.fillText(procedure.name, 314, y + rowHeight * 0.57);
+      ctx.fillStyle = selected ? "#a2dbd1" : "#7e959f";
+      ctx.textAlign = "right";
+      ctx.font = "20px sans-serif";
+      ctx.fillText(selected ? "ASSIGNED" : procedure.difficulty, 1198, y + rowHeight * 0.57);
+      ctx.textAlign = "left";
+    });
+    ctx.fillStyle = "#a1d2cb";
+    ctx.fillRect(58, 790, 1164, 69);
+    ctx.fillStyle = "#122a32";
+    ctx.font = "600 28px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("CLICK SCREEN  /  PRESS E TO OPEN CASES", 640, 834);
+    ctx.textAlign = "left";
+    this.workstationTexture.needsUpdate = true;
+  }
   update(
     dt: number,
     held: Tool | null,
@@ -645,6 +776,7 @@ export class OperatingRoom {
       const blocked = (x: number, z: number) =>
         (Math.abs(x) < 0.68 && z > -1.5 && z < 1.45) ||
         (x > 0.88 && x < 2.02 && z > -0.42 && z < 0.77) ||
+        (x > 2.04 && x < 3.26 && z > -1.12 && z < -0.13) ||
         (x > -1.8 && x < -0.84 && z > -0.88 && z < 0.17);
       if (!blocked(next.x, this.position.z)) this.position.x = next.x;
       if (!blocked(this.position.x, next.z)) this.position.z = next.z;
@@ -665,8 +797,15 @@ export class OperatingRoom {
       distance(this.trayPosition) < 1.45 && looking(this.trayPosition);
     this.canOperate =
       distance(this.scopePosition) < 1.65 && looking(this.scopePosition);
+    const workstationDirection = this.workstationPosition.clone().sub(this.position).normalize();
+    this.nearWorkstation =
+      distance(this.workstationPosition) < 4.1 &&
+      this.position.z > this.workstationPosition.z &&
+      direction.dot(workstationDirection) > 0.88;
     this.prompt =
-      held &&
+      this.nearWorkstation
+        ? "Use case workstation"
+        : held &&
       this.canOperate &&
       distance(this.scopePosition) < distance(this.trayPosition)
         ? "Enter surgical view"

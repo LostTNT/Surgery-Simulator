@@ -5,6 +5,7 @@ export class BoneWindow {
   geometry = new THREE.BufferGeometry();
   mesh: THREE.Mesh;
   flap: THREE.Mesh | null = null;
+  cutEdge: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial> | null = null;
   path: THREE.Points;
   dust: THREE.Points;
   dustPositions = new Float32Array(90 * 3);
@@ -219,6 +220,43 @@ export class BoneWindow {
     this.flap.castShadow = true;
     this.mesh.parent?.add(this.flap);
     this.rebuild(true);
+    // The height field has no thickness. Close its freshly exposed inner edge
+    // so low portions of the cortex do not reveal the empty scene behind it.
+    const edgePositions: number[] = [],
+      edgeColors: number[] = [],
+      edgeIndices: number[] = [],
+      segments = 160,
+      shades = [0xcab08c, 0xb49775, 0x7d4c43].map((c) => new THREE.Color(c));
+    for (let row = 0; row < 3; row++) {
+      const scale = row === 0 ? 1.06 : row === 1 ? 1.025 : 1;
+      for (let i = 0; i <= segments; i++) {
+        const angle = (i / segments) * Math.PI * 2,
+          x = Math.cos(angle) * CUT_RX * scale,
+          y = Math.sin(angle) * CUT_RY * scale,
+          rimX = Math.cos(angle) * CUT_RX * 1.06,
+          rimY = Math.sin(angle) * CUT_RY * 1.06,
+          rimHeight = this.height(rimX, rimY) - this.cut.at(rimX, rimY) * 0.16;
+        edgePositions.push(x, y, row === 0 ? rimHeight - 0.004 : row === 1 ? rimHeight - 0.17 : -0.72);
+        edgeColors.push(shades[row].r, shades[row].g, shades[row].b);
+        if (row < 2 && i < segments) {
+          const k = row * (segments + 1) + i,
+            next = k + segments + 1;
+          edgeIndices.push(k, k + 1, next, k + 1, next + 1, next);
+        }
+      }
+    }
+    const edgeGeometry = new THREE.BufferGeometry();
+    edgeGeometry.setAttribute("position", new THREE.Float32BufferAttribute(edgePositions, 3));
+    edgeGeometry.setAttribute("color", new THREE.Float32BufferAttribute(edgeColors, 3));
+    edgeGeometry.setIndex(edgeIndices);
+    edgeGeometry.computeVertexNormals();
+    this.cutEdge = new THREE.Mesh(edgeGeometry, new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.78,
+      side: THREE.DoubleSide,
+    }));
+    this.cutEdge.receiveShadow = true;
+    this.mesh.parent?.add(this.cutEdge);
     this.liftTime = 0;
     this.path.visible = false;
     return true;
@@ -257,6 +295,10 @@ export class BoneWindow {
     this.flap?.geometry.dispose();
     this.flap?.removeFromParent();
     this.flap = null;
+    this.cutEdge?.geometry.dispose();
+    this.cutEdge?.material.dispose();
+    this.cutEdge?.removeFromParent();
+    this.cutEdge = null;
     this.liftTime = -1;
     this.path.visible = false;
     this.rebuild();

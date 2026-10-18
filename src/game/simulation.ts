@@ -1,6 +1,6 @@
 export type Tool = "suction" | "irrigation" | "bipolar" | "drill";
 export type Status = "ready" | "running" | "paused" | "success" | "failed";
-export type CaseId = "lab" | "case01" | "case02";
+export type CaseId = "lab" | "case01" | "case02" | "case03";
 export type Vec = [number, number, number];
 export interface Pocket {
   x: number;
@@ -49,6 +49,9 @@ export interface GameState {
   usefulTime: number;
   contactTime: number;
   inspectionTime: number;
+  inspectionActive: boolean;
+  procedureStarted: boolean;
+  sourceControlled: boolean;
   clearance: number;
   action: boolean;
   sound: boolean;
@@ -58,16 +61,30 @@ export interface GameState {
   zoom: number;
   entry: number;
 }
-export const CASES: Record<
-  CaseId,
-  {
-    name: string;
-    label: string;
-    difficulty: string;
-    brief: string;
-    duration: string;
-  }
-> = {
+export interface ProcedureCase {
+  name: string;
+  label: string;
+  difficulty: string;
+  brief: string;
+  duration: string;
+  pockets: readonly (readonly [number, number, number])[];
+  suctionRate: number;
+  irrigationRate: number;
+  clarityRequired: number;
+  bleedingSource: Vec | null;
+  initialBleeding: number;
+  objectives: { title: string; detail: string; tool: Tool }[];
+}
+export const INSPECTION_SECONDS = 2.5;
+export const POCKET_CLEAR_THRESHOLD = 0.015;
+export const BLEEDING_CONTROL_THRESHOLD = 0.025;
+const introductoryPockets = [
+  [0.68, 0.55, 0.38],
+  [0.88, -0.03, 0.34],
+  [0.58, -0.62, 0.4],
+  [-0.42, 0.68, 0.33],
+] as const;
+export const CASES: Record<CaseId, ProcedureCase> = {
   lab: {
     name: "Instrument lab",
     label: "Practice field",
@@ -75,6 +92,17 @@ export const CASES: Record<
     duration: "REPEATABLE",
     brief:
       "Open a bone window with the burr, then clear and rinse a fictional practice field. Assisted depth helps you learn the instruments.",
+    pockets: introductoryPockets,
+    suctionRate: 0.48,
+    irrigationRate: 0.24,
+    clarityRequired: 0.88,
+    bleedingSource: null,
+    initialBleeding: 0,
+    objectives: [
+      { title: "Open the window", detail: "Drill the marked path and lift the bone flap.", tool: "drill" },
+      { title: "Clear 4 pockets", detail: "Aspirate each numbered fluid pocket.", tool: "suction" },
+      { title: "Rinse and inspect", detail: "Rinse to 88% clarity, then choose Examine field.", tool: "irrigation" },
+    ],
   },
   case01: {
     name: "Extra-axial collection",
@@ -83,14 +111,69 @@ export const CASES: Record<
     duration: "PREPARED FIELD",
     brief:
       "Open the bone window, then remove a localized fluid collection with slower aspiration. Protect the soft surface and inspect the cleared field.",
+    pockets: introductoryPockets,
+    suctionRate: 0.3,
+    irrigationRate: 0.24,
+    clarityRequired: 0.88,
+    bleedingSource: null,
+    initialBleeding: 0,
+    objectives: [
+      { title: "Open the window", detail: "Drill the marked path and lift the bone flap.", tool: "drill" },
+      { title: "Clear 4 pockets", detail: "Use slower aspiration above the soft surface.", tool: "suction" },
+      { title: "Rinse and inspect", detail: "Rinse to 88% clarity, then choose Examine field.", tool: "irrigation" },
+    ],
   },
   case02: {
-    name: "A narrower margin",
+    name: "Focal bleeding control",
     label: "Case 02",
-    difficulty: "Intermediate · planned",
-    duration: "COMING LATER",
+    difficulty: "Intermediate",
+    duration: "BLEEDING CONTROL",
     brief:
-      "An intermediate case is planned after the introductory procedure passes its quality checks. More procedure families will follow.",
+      "Open the bone window and locate the marked bleeding source. Control it with bipolar before aspirating four fluid pockets, rinsing, and examining the field.",
+    pockets: [
+      [0.6, 0.58, 0.3],
+      [0.87, -0.05, 0.28],
+      [0.48, -0.62, 0.3],
+      [-0.5, 0.58, 0.29],
+    ],
+    suctionRate: 0.28,
+    irrigationRate: 0.22,
+    clarityRequired: 0.9,
+    bleedingSource: [0.12, -0.24, 0],
+    initialBleeding: 0.36,
+    objectives: [
+      { title: "Open the window", detail: "Drill the marked path and lift the bone flap.", tool: "drill" },
+      { title: "Control the source", detail: "Apply bipolar at the marked source until bleeding stops.", tool: "bipolar" },
+      { title: "Clear 4 pockets", detail: "Fluid removal unlocks after bleeding is controlled.", tool: "suction" },
+      { title: "Rinse and inspect", detail: "Rinse to 90% clarity, then choose Examine field.", tool: "irrigation" },
+    ],
+  },
+  case03: {
+    name: "Loculated collection washout",
+    label: "Case 03",
+    difficulty: "Intermediate",
+    duration: "SIX-POCKET WASHOUT",
+    brief:
+      "Open the bone window, then clear six separated fluid pockets across the exposure. A slower rinse must reach 96% clarity before the final examination.",
+    pockets: [
+      [-0.78, 0.56, 0.27],
+      [-0.12, 0.74, 0.25],
+      [0.64, 0.53, 0.28],
+      [0.88, -0.16, 0.25],
+      [0.23, -0.67, 0.29],
+      [-0.6, -0.49, 0.27],
+    ],
+    suctionRate: 0.26,
+    irrigationRate: 0.15,
+    clarityRequired: 0.96,
+    bleedingSource: null,
+    initialBleeding: 0,
+    objectives: [
+      { title: "Open the window", detail: "Drill the marked path and lift the bone flap.", tool: "drill" },
+      { title: "Clear all 6 pockets", detail: "Each separated pocket must be fully aspirated.", tool: "suction" },
+      { title: "Complete the washout", detail: "Rinse to 96% clarity; this field needs a longer washout.", tool: "irrigation" },
+      { title: "Examine the field", detail: "Choose Examine field after clearing and rinsing.", tool: "irrigation" },
+    ],
   },
 };
 export const TOOLS: Record<
@@ -133,7 +216,7 @@ export const STAGES = [
   },
   {
     title: "Inspect the field",
-    detail: "Rinse the field, then release the instrument to inspect.",
+    detail: "Rinse to the target clarity, then choose Examine field.",
   },
 ];
 const initialFeedback = {
@@ -146,20 +229,7 @@ export function createState(
   guided = true,
   entry = 0,
 ): GameState {
-  const locations =
-    caseId === "case02"
-      ? [
-          [0.56, 0.58, 0.29],
-          [0.82, 0.07, 0.28],
-          [0.55, -0.53, 0.3],
-          [-0.48, 0.64, 0.28],
-        ]
-      : [
-          [0.68, 0.55, 0.38],
-          [0.88, -0.03, 0.34],
-          [0.58, -0.62, 0.4],
-          [-0.42, 0.68, 0.33],
-        ];
+  const procedure = CASES[caseId];
   return {
     caseId,
     status: "ready",
@@ -172,7 +242,7 @@ export function createState(
     injury: 0,
     bleeding: 0,
     bleedPosition: null,
-    pockets: locations.map(([x, y, radius]) => ({
+    pockets: procedure.pockets.map(([x, y, radius]) => ({
       x,
       y,
       radius,
@@ -185,6 +255,9 @@ export function createState(
     usefulTime: 0,
     contactTime: 0,
     inspectionTime: 0,
+    inspectionActive: false,
+    procedureStarted: false,
+    sourceControlled: procedure.bleedingSource === null,
     clearance: 0.5,
     action: false,
     sound: false,
@@ -201,7 +274,7 @@ export function setFeedback(
   detail: string,
   kind: Feedback["kind"] = "neutral",
 ) {
-  if (s.feedback.title !== title || s.feedback.kind !== kind)
+  if (s.feedback.title !== title || s.feedback.detail !== detail || s.feedback.kind !== kind)
     s.feedback = { title, detail, kind };
 }
 export function logEvent(
@@ -218,11 +291,68 @@ export function logEvent(
   });
   if (s.events.length > 240) s.events.shift();
 }
+/** Call once the flap has opened; preparation time must not advance a bleed. */
+export function initializeProcedure(s: GameState, sourcePosition?: Vec) {
+  if (s.procedureStarted) return;
+  s.procedureStarted = true;
+  const procedure = CASES[s.caseId];
+  if (procedure.bleedingSource) {
+    s.bleedPosition = [...(sourcePosition ?? procedure.bleedingSource)];
+    s.bleeding = procedure.initialBleeding;
+    s.sourceControlled = false;
+    logEvent(s, "source", "Prepared bleeding source exposed", s.bleedPosition);
+    setFeedback(
+      s,
+      "Control the marked bleeding source.",
+      "Choose bipolar and activate just above the source. Clear fluid after bleeding stops.",
+      "warning",
+    );
+  }
+}
+export function pocketsCleared(s: GameState) {
+  return s.pockets.every((p) => p.remaining <= POCKET_CLEAR_THRESHOLD);
+}
+export function inspectionReady(s: GameState) {
+  return (
+    s.status === "running" &&
+    s.sourceControlled &&
+    pocketsCleared(s) &&
+    s.clarity >= CASES[s.caseId].clarityRequired &&
+    s.bleeding < BLEEDING_CONTROL_THRESHOLD
+  );
+}
+export function cancelInspection(s: GameState) {
+  s.inspectionActive = false;
+  s.inspectionTime = 0;
+}
+export function beginInspection(s: GameState): boolean {
+  if (s.status !== "running") return false;
+  if (s.inspectionActive) return true;
+  if (!inspectionReady(s)) {
+    cancelInspection(s);
+    if (!s.sourceControlled || s.bleeding >= BLEEDING_CONTROL_THRESHOLD)
+      setFeedback(s, "Control bleeding before examining.", "Use bipolar at the marked bleeding source.", "warning");
+    else if (!pocketsCleared(s)) {
+      const left = s.pockets.filter((p) => p.remaining > POCKET_CLEAR_THRESHOLD).length;
+      setFeedback(s, "Fluid remains in the field.", `Clear the ${left} remaining ${left === 1 ? "pocket" : "pockets"} with suction.`, "warning");
+    } else
+      setFeedback(s, "Rinse before examining.", `Use irrigation to reach ${Math.round(CASES[s.caseId].clarityRequired * 100)}% clarity.`, "warning");
+    return false;
+  }
+  s.action = false;
+  s.stage = 2;
+  s.inspectionTime = 0;
+  s.inspectionActive = true;
+  logEvent(s, "inspection", "Final field examination started");
+  setFeedback(s, "Examining the field.", "Instruments are resting. The final check takes 2.5 seconds.", "good");
+  return true;
+}
 export function pause(s: GameState) {
   s.action = false;
   if (s.status === "running") s.status = "paused";
 }
 export function chooseTool(s: GameState, tool: Tool) {
+  cancelInspection(s);
   s.action = false;
   s.tool = tool;
   setFeedback(s, TOOLS[tool].name, TOOLS[tool].purpose);
@@ -237,9 +367,10 @@ export function score(s: GameState) {
   );
 }
 export function tick(s: GameState, c: Contact, dt: number) {
-  if (s.status !== "running") return;
+  if (s.status !== "running" || !Number.isFinite(dt) || dt <= 0) return;
   s.elapsed += dt;
   s.clearance = c.clearance;
+  if (s.action) cancelInspection(s);
   if (!c.inField) s.action = false;
   if (s.bleeding > 0.02) {
     s.bleeding = Math.min(1, s.bleeding + dt * 0.006);
@@ -254,11 +385,12 @@ export function tick(s: GameState, c: Contact, dt: number) {
   if (active) s.activeTime += dt;
   const p = c.pocket >= 0 ? s.pockets[c.pocket] : null;
   const working = c.clearance <= 0.24 && c.clearance >= 0.012;
-  const nearSource = s.bleedPosition !== null && c.bleedDistance < 0.2;
+  const nearSource = s.bleedPosition !== null && s.bleeding > 0 && c.bleedDistance < 0.2;
   const physicalContact = (c.inField && c.clearance < -0.035) || c.shaftContact;
   const thermalInjury =
     active && s.tool === "bipolar" && !nearSource && c.clearance < 0.18;
   if (physicalContact || thermalInjury) {
+    cancelInspection(s);
     const rate = c.vessel ? 2.7 : thermalInjury ? 1.5 : 1.15;
     s.injury = Math.min(1, s.injury + dt * rate);
     s.contactTime += dt;
@@ -300,6 +432,25 @@ export function tick(s: GameState, c: Contact, dt: number) {
     return;
   }
   s.contactTime = Math.max(0, s.contactTime - dt * 0.65);
+  // An examination also runs with the instrument safely resting off the field.
+  // Simply releasing an instrument never starts this explicit final check.
+  if (s.inspectionActive) {
+    if (!inspectionReady(s)) {
+      cancelInspection(s);
+      setFeedback(s, "Examination interrupted.", "Restore a clear, stable field, then choose Examine field again.", "warning");
+    } else {
+      s.inspectionTime = Math.min(INSPECTION_SECONDS, s.inspectionTime + dt);
+      setFeedback(s, "Examining the field.", "Instruments are resting. The final check takes 2.5 seconds.", "good");
+      if (s.inspectionTime >= INSPECTION_SECONDS - 1e-9) {
+        s.inspectionTime = INSPECTION_SECONDS;
+        s.inspectionActive = false;
+        s.status = "success";
+        s.action = false;
+        logEvent(s, "complete", "Field cleared, rinsed, and explicitly examined");
+      }
+      return;
+    }
+  }
   if (!c.inField) {
     setFeedback(
       s,
@@ -318,11 +469,15 @@ export function tick(s: GameState, c: Contact, dt: number) {
       "good",
     );
   }
+  if (active && !s.sourceControlled && s.tool !== "bipolar") {
+    setFeedback(s, "Control bleeding first.", "Apply bipolar at the marked source before aspirating or rinsing.", "warning");
+    return;
+  }
   if (active && s.tool === "suction") {
     if (p && p.remaining > 0.001 && working) {
       p.remaining = Math.max(
         0,
-        p.remaining - dt * (s.caseId === "lab" ? 0.48 : 0.3),
+        p.remaining - dt * CASES[s.caseId].suctionRate,
       );
       s.usefulTime += dt;
       s.removed = fluidProgress(s);
@@ -346,7 +501,7 @@ export function tick(s: GameState, c: Contact, dt: number) {
       );
   } else if (active && s.tool === "irrigation") {
     if (working) {
-      s.clarity = Math.min(1, s.clarity + dt * 0.24);
+      s.clarity = Math.min(1, s.clarity + dt * CASES[s.caseId].irrigationRate);
       s.usefulTime += dt;
       setFeedback(
         s,
@@ -363,11 +518,20 @@ export function tick(s: GameState, c: Contact, dt: number) {
   } else if (active && s.tool === "bipolar") {
     if (nearSource && working) {
       s.bleeding = Math.max(0, s.bleeding - dt * 0.32);
+      if (s.bleeding < BLEEDING_CONTROL_THRESHOLD) {
+        s.bleeding = 0;
+        s.bleedPosition = null;
+        s.action = false;
+        if (!s.sourceControlled) {
+          s.sourceControlled = true;
+          logEvent(s, "source", "Prepared bleeding source controlled");
+        }
+      }
       s.usefulTime += dt;
       setFeedback(
         s,
-        "Bleeding source controlled.",
-        "Use brief activation. Existing injury remains.",
+        s.bleeding === 0 ? "Bleeding source controlled." : "Treating the bleeding source.",
+        s.bleeding === 0 ? "Release the action button. Continue with suction." : "Continue briefly until bleeding stops. Existing injury remains.",
         "good",
       );
     } else if (c.clearance > 0.18)
@@ -403,30 +567,18 @@ export function tick(s: GameState, c: Contact, dt: number) {
       "Above the working plane.",
       "Lower deliberately. The tip marker shows your approach.",
     );
-  if (fluidProgress(s) > 0.985 && s.stage < 2) {
+  if (pocketsCleared(s) && s.stage < 2) {
     s.stage = 2;
     logEvent(s, "stage", "Collection cleared");
     setFeedback(
       s,
       "Collection cleared.",
-      "Select irrigation, rinse the field, then release to inspect.",
+      `Select irrigation and rinse to ${Math.round(CASES[s.caseId].clarityRequired * 100)}% clarity, then choose Examine field.`,
       "good",
     );
   }
-  if (s.stage === 2 && s.clarity > 0.88 && s.bleeding < 0.025 && !s.action) {
-    s.inspectionTime += dt;
-    setFeedback(
-      s,
-      "Inspecting the field.",
-      "Keep the instrument inactive while the field is assessed.",
-      "good",
-    );
-    if (s.inspectionTime > 2.5) {
-      s.status = "success";
-      s.action = false;
-      logEvent(s, "complete", "Field cleared and inspected");
-    }
-  } else s.inspectionTime = 0;
+  if (inspectionReady(s))
+    setFeedback(s, "Ready for final examination.", "Choose Examine field to rest the instruments and start the final check.", "good");
 }
 export function checkpoint(s: GameState, saved?: GameState): GameState {
   const n = saved
@@ -436,6 +588,7 @@ export function checkpoint(s: GameState, saved?: GameState): GameState {
   n.quality = s.quality;
   n.status = "running";
   n.action = false;
+  cancelInspection(n);
   n.entry = s.entry + 1;
   logEvent(
     n,

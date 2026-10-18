@@ -21,6 +21,9 @@ import {
   chooseTool,
   checkpoint,
   logEvent,
+  beginInspection as startInspection,
+  cancelInspection,
+  initializeProcedure,
   type GameState,
   type CaseId,
   type Tool,
@@ -38,10 +41,12 @@ export interface Snapshot extends GameState {
   depthAssist: boolean;
   depthOffset: number;
   targets: { x: number; y: number; remaining: number }[];
+  bleedTarget: { x: number; y: number } | null;
   accessPhase: "bone" | "lifting" | "surgery";
   cutProgress: number;
   cutGuide: { x: number; y: number; done: boolean }[];
   roomWaypoint: { x: number; y: number; label: string } | null;
+  workstationTarget: { x: number; y: number } | null;
   trayView: boolean;
   cameraMoving: boolean;
   traySlots: { tool: Tool; x: number; y: number }[];
@@ -81,6 +86,7 @@ export class Engine {
     if (this.state.status === "running") this.pause();
     else if (this.state.status === "paused") this.resume();
   };
+  onWorkstationRequest: () => void = () => {};
   stageSnapshots = new Map<number, GameState>();
   location: "room" | "surgery" = "room";
   room: OperatingRoom | null = null;
@@ -137,8 +143,9 @@ export class Engine {
     pmrem.dispose();
     room.dispose();
     this.cleanups.push(() => env.dispose());
-    this.scene.add(new THREE.HemisphereLight(0xe9f2f3, 0x42312c, 1.15));
-    const light = new THREE.SpotLight(0xffeee0, 42, 15, Math.PI / 3, 0.8, 2);
+    this.scene.environmentIntensity = 0.38;
+    this.scene.add(new THREE.HemisphereLight(0xdce9ef, 0x25312c, 0.48));
+    const light = new THREE.SpotLight(0xfff4e7, 80, 15, Math.PI / 7, 0.48, 2);
     light.position.set(-0.6, -1, 5.5);
     light.target.position.set(0, 0, 0);
     light.castShadow = true;
@@ -147,7 +154,7 @@ export class Engine {
     light.shadow.radius = 3;
     light.shadow.bias = -0.0005;
     this.scene.add(light, light.target);
-    const fill = new THREE.DirectionalLight(0xc0e2ed, 0.9);
+    const fill = new THREE.DirectionalLight(0xc0e2ed, 0.32);
     fill.position.set(3, 2, 4);
     this.scene.add(fill);
     this.observer = new ResizeObserver(() => this.resize());
@@ -159,11 +166,12 @@ export class Engine {
   }
   snapshot(): Snapshot {
     let roomWaypoint: Snapshot["roomWaypoint"] = null;
+    let workstationTarget: Snapshot["workstationTarget"] = null;
     if (this.room) {
       const p = (
-        this.heldTool ? this.room.scopePosition : this.room.trayPosition
+        this.heldTool ? this.room.scopePosition : this.room.workstationPosition
       ).clone();
-      p.y += this.heldTool ? 0.6 : 0.28;
+      if (this.heldTool) p.y += 0.6;
       p.project(this.room.camera);
       roomWaypoint = {
         x: THREE.MathUtils.clamp(
@@ -176,8 +184,14 @@ export class Engine {
           100,
           this.host.clientHeight - 150,
         ),
-        label: this.heldTool ? "Microscope" : "Instrument tray",
+        label: this.heldTool ? "Microscope" : "Case workstation",
       };
+      const monitor = this.room.workstationPosition.clone().project(this.room.camera);
+      if (monitor.z > -1 && monitor.z < 1 && Math.abs(monitor.x) < 0.92 && Math.abs(monitor.y) < 0.8)
+        workstationTarget = {
+          x: ((monitor.x + 1) * this.host.clientWidth) / 2,
+          y: ((1 - monitor.y) * this.host.clientHeight) / 2,
+        };
     }
     return {
       ...this.state,
@@ -197,6 +211,13 @@ export class Engine {
         ...this.project(p.x, p.y, this.surface(p.x, p.y) + 0.07),
         remaining: p.remaining,
       })),
+      bleedTarget: this.state.bleedPosition
+        ? this.project(
+            this.state.bleedPosition[0],
+            this.state.bleedPosition[1],
+            this.surface(this.state.bleedPosition[0], this.state.bleedPosition[1]) + 0.07,
+          )
+        : null,
       accessPhase: this.accessPhase,
       cutProgress: this.bone?.cut.progress ?? 0,
       cutGuide:
@@ -205,6 +226,7 @@ export class Engine {
           done: this.bone!.cut.at(p.x, p.y) > 0.82,
         })) ?? [],
       roomWaypoint,
+      workstationTarget,
       trayView: this.trayView,
       cameraMoving:
         Math.abs(
@@ -432,7 +454,6 @@ export class Engine {
         : "Entered operating field",
     );
     this.dirty = true;
-    this.lockPointer();
     this.emit();
   }
   startSurgery() {
@@ -446,6 +467,13 @@ export class Engine {
   startRoom() {
     this.location = "room";
     this.start();
+  }
+  openWorkstation() {
+    if (!this.loaded || this.location !== "room") return;
+    this.freezeInput();
+    this.room?.keys.clear();
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.onWorkstationRequest();
   }
   setDepthAssist(value: boolean) {
     this.freezeInput();
@@ -464,6 +492,30 @@ export class Engine {
     this.accessPhase = "lifting";
     logEvent(this.state, "stage", "Bone window opened");
     this.emit();
+  }
+  beginInspection() {
+    if (
+      this.state.status !== "running" ||
+      this.location !== "surgery" ||
+      this.accessPhase !== "surgery" ||
+      this.trayView ||
+      this.trayPan > 0.001
+    )
+      return false;
+    this.freezeInput();
+    if (!startInspection(this.state)) {
+      this.emit();
+      return false;
+    }
+    // Rest the hand clear of the field so manual depth cannot cause injury
+    // during a deliberate examination, even if the last working tip was low.
+    this.tip.set(0, 0, this.surface(0, 0) + 0.65);
+    this.target.copy(this.tip);
+    this.previous.copy(this.tip);
+    this.state.depth = this.tip.z;
+    this.dirty = true;
+    this.emit();
+    return true;
   }
   aimAt(clientX: number, clientY: number) {
     const r = this.renderer.domElement.getBoundingClientRect();
@@ -515,6 +567,8 @@ export class Engine {
     if (this.state.status === "paused") this.start();
   }
   toggleTray() {
+    if (this.state.status !== "running" || this.location !== "surgery") return;
+    cancelInspection(this.state);
     this.freezeInput();
     this.trayView = !this.trayView;
     this.dirty = true;
@@ -552,6 +606,10 @@ export class Engine {
   }
   interactRoom() {
     if (!this.room || this.location !== "room") return;
+    if (this.room.prompt === "Use case workstation") {
+      this.openWorkstation();
+      return;
+    }
     if (this.room.prompt === "Enter surgical view" && this.heldTool) {
       this.location = "surgery";
       if (this.accessPhase === "bone") {
@@ -589,9 +647,10 @@ export class Engine {
     this.trayPan = 0;
     this.tray?.update(null);
     this.room?.hold(null);
+    this.room?.setCase(id);
     if (this.room) {
-      this.room.position.set(1.6, 1.65, 2.5);
-      this.room.yaw = 0.43;
+      this.room.position.set(1.85, 1.65, 2.65);
+      this.room.yaw = 0.16;
       this.room.pitch = -0.09;
       this.room.keys.clear();
       this.room.updateCamera();
@@ -695,11 +754,25 @@ export class Engine {
         }
         return;
       }
-      if (!this.trayView && this.heldTool) this.aimAt(e.clientX, e.clientY);
+      if (!this.trayView && this.heldTool && !this.state.inspectionActive)
+        this.aimAt(e.clientX, e.clientY);
     }) as EventListener);
     listen(canvas, "pointerdown", ((e: PointerEvent) => {
       if (e.button === 0 && this.state.status === "running") {
         if (this.location === "room") {
+          const r = canvas.getBoundingClientRect();
+          const captured = document.pointerLockElement === canvas;
+          this.ray.setFromCamera(
+            new THREE.Vector2(
+              captured ? 0 : ((e.clientX - r.left) / r.width) * 2 - 1,
+              captured ? 0 : 1 - ((e.clientY - r.top) / r.height) * 2,
+            ),
+            this.room!.camera,
+          );
+          if (this.room?.isWorkstationHit(this.ray)) {
+            this.openWorkstation();
+            return;
+          }
           this.lockPointer();
           return;
         }
@@ -718,6 +791,7 @@ export class Engine {
           return;
         }
         if (!this.heldTool || this.trayPan > 0.001) return;
+        cancelInspection(this.state);
         this.state.action = true;
         this.aimAt(e.clientX, e.clientY);
         canvas.setPointerCapture(e.pointerId);
@@ -826,7 +900,10 @@ export class Engine {
       }
       if (e.key.toLowerCase() === "t") this.toggleTray();
       if (e.key.toLowerCase() === "e") {
+        if (e.repeat) return;
+        e.preventDefault();
         if (this.trayView) this.placeTool();
+        else if (this.accessPhase === "surgery") this.beginInspection();
         else this.liftBone();
       }
       if (["1", "2", "3", "4"].includes(e.key)) {
@@ -952,7 +1029,7 @@ export class Engine {
         while (this.accumulator >= 1 / 60) {
           this.previous.copy(this.tip);
           // Small, bounded interpolation keeps motion stable without adding floaty inertia.
-          if (this.depthAssist) {
+          if (this.depthAssist && !this.state.inspectionActive) {
             const bone = this.accessPhase !== "surgery";
             const surface = (x: number, y: number) =>
               bone && this.bone
@@ -968,7 +1045,8 @@ export class Engine {
             this.tip.z =
               surface(this.tip.x, this.tip.y) + clearance + this.depthOffset;
             this.state.depth = this.tip.z;
-          } else this.tip.lerp(this.target, this.precision ? 0.18 : 0.48);
+          } else if (!this.state.inspectionActive)
+            this.tip.lerp(this.target, this.precision ? 0.18 : 0.48);
           if (this.accessPhase !== "surgery") {
             this.state.elapsed += 1 / 60;
             this.state.clearance =
@@ -1029,6 +1107,12 @@ export class Engine {
           (this.bone?.liftTime ?? 0) > 1.3
         ) {
           this.accessPhase = "surgery";
+          initializeProcedure(this.state);
+          if (this.state.bleedPosition) {
+            const [x, y] = this.state.bleedPosition;
+            this.state.bleedPosition[2] = this.surface(x, y) + 0.03;
+          }
+          this.stageSnapshots.set(0, structuredClone(this.state));
           this.depthOffset = 0;
           this.trayView = true;
           this.freezeInput();
@@ -1036,7 +1120,10 @@ export class Engine {
       }
       for (const [name, model] of Object.entries(this.tools))
         if (model) {
-          model.visible = this.location === "surgery" && name === this.heldTool;
+          model.visible =
+            this.location === "surgery" &&
+            name === this.heldTool &&
+            !this.state.inspectionActive;
           if (this.trayView) model.position.set(0.7, -2.5, 1.6);
           else model.position.copy(this.tip);
           if (
@@ -1068,7 +1155,7 @@ export class Engine {
         );
         if (
           this.field &&
-          (this.accessPhase !== "surgery" || this.trayView || !this.heldTool)
+          (this.accessPhase !== "surgery" || this.trayView || !this.heldTool || this.state.inspectionActive)
         ) {
           this.field.guide.visible = false;
           this.field.contact.visible = false;

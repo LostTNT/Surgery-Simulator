@@ -1,7 +1,12 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { DecalGeometry } from "three/addons/geometries/DecalGeometry.js";
-import type { GameState, Pocket } from "./simulation";
+import {
+  BLEEDING_CONTROL_THRESHOLD,
+  POCKET_CLEAR_THRESHOLD,
+  type GameState,
+  type Pocket,
+} from "./simulation";
 
 export interface Vessel {
   name: string;
@@ -113,38 +118,6 @@ function lineTube(
     parent,
   );
 }
-function fluidGeometry(p: Pocket, surface: Surface) {
-  const v: number[] = [p.x, p.y, surface(p.x, p.y) + 0.055],
-    ind: number[] = [];
-  const sides = 48,
-    rings = 5;
-  for (let j = 1; j <= rings; j++)
-    for (let i = 0; i < sides; i++) {
-      const a = (i / sides) * Math.PI * 2,
-        r =
-          ((p.radius * j) / rings) *
-          (1 + 0.12 * Math.sin(a * 3 + p.x) + 0.07 * Math.cos(a * 5));
-      const x = p.x + Math.cos(a) * r,
-        y = p.y + Math.sin(a) * r * 0.8;
-      v.push(
-        x,
-        y,
-        surface(x, y) + 0.016 + Math.sin((j / rings) * Math.PI) * 0.008,
-      );
-      if (j === 1) ind.push(0, 1 + i, 1 + ((i + 1) % sides));
-      else {
-        const k = 1 + (j - 1) * sides + i,
-          k2 = 1 + (j - 1) * sides + ((i + 1) % sides);
-        ind.push(k, k2, k - sides, k2, k2 - sides, k - sides);
-      }
-    }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(v, 3));
-  g.setIndex(ind);
-  g.computeVertexNormals();
-  return g;
-}
-
 export function buildField(
   scene: THREE.Scene,
   surface: Surface,
@@ -458,7 +431,7 @@ export function buildField(
   }
   const poolGroup = new THREE.Group();
   scene.add(poolGroup);
-  let pools: THREE.Mesh[] = [],
+  const pools: THREE.Mesh[] = [],
     stains: THREE.Mesh[] = [];
   const maskCanvas = document.createElement("canvas");
   maskCanvas.width = maskCanvas.height = 128;
@@ -471,12 +444,13 @@ export function buildField(
   ctx.fillRect(0, 0, 128, 128);
   const mask = new THREE.CanvasTexture(maskCanvas);
   const fluid = new THREE.MeshPhysicalMaterial({
-    color: 0x450f0c,
+    color: 0x581915,
     alphaMap: mask,
-    roughness: 0.58,
-    envMapIntensity: 0.2,
+    roughness: 0.36,
+    envMapIntensity: 0.35,
     metalness: 0,
-    clearcoat: 0.08,
+    clearcoat: 0.4,
+    clearcoatRoughness: 0.22,
     transparent: true,
     opacity: 0.94,
     side: THREE.DoubleSide,
@@ -500,6 +474,7 @@ export function buildField(
     transparent: true,
     opacity: 0.65,
     depthTest: false,
+    depthWrite: false,
     side: THREE.DoubleSide,
   });
   const guide = mesh(
@@ -508,17 +483,28 @@ export function buildField(
     scene,
   );
   guide.renderOrder = 20;
+  guide.castShadow = guide.receiveShadow = false;
   const contact = mesh(
     new THREE.RingGeometry(0.025, 0.028, 40),
     markerMat.clone(),
     scene,
   );
   contact.renderOrder = 22;
+  contact.castShadow = contact.receiveShadow = false;
+  const bleedMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0x9c2922,
+    roughness: 0.25,
+    clearcoat: 0.75,
+    clearcoatRoughness: 0.18,
+    transparent: true,
+    opacity: 0.94,
+  });
   const bleed = mesh(
     new THREE.SphereGeometry(0.13, 24, 12),
-    fluid.clone(),
+    bleedMaterial,
     scene,
   );
+  bleed.castShadow = false;
   bleed.scale.z = 0.15;
   bleed.visible = false;
   const streamGeo = new THREE.BufferGeometry();
@@ -538,11 +524,19 @@ export function buildField(
   stream.visible = false;
   function reset(p: Pocket[]) {
     poolGroup.traverse((o) => {
-      if (o instanceof THREE.Mesh) o.geometry.dispose();
+      if (o instanceof THREE.Mesh) {
+        o.geometry.dispose();
+        const materials = Array.isArray(o.material) ? o.material : [o.material];
+        materials.forEach((material) => {
+          const alphaMap = (material as THREE.MeshStandardMaterial).alphaMap;
+          if (alphaMap && alphaMap !== mask) alphaMap.dispose();
+          material.dispose();
+        });
+      }
     });
     poolGroup.clear();
-    pools = [];
-    stains = [];
+    pools.length = 0;
+    stains.length = 0;
     for (const pocket of p) {
       const g = new DecalGeometry(
         cortex,
@@ -551,9 +545,12 @@ export function buildField(
         new THREE.Vector3(pocket.radius * 2, pocket.radius * 1.6, 2),
       );
       const st = mesh(g.clone(), stainMat.clone(), poolGroup);
+      st.castShadow = false;
       st.renderOrder = 1;
       stains.push(st);
-      const m = mesh(g, fluid.clone(), poolGroup);
+      const pocketMaterial = fluid.clone();
+      pocketMaterial.alphaMap = mask.clone();
+      const m = mesh(g, pocketMaterial, poolGroup);
       m.castShadow = false;
       m.renderOrder = 2;
       pools.push(m);
@@ -573,23 +570,34 @@ export function buildField(
       for (let i = 0; i < pools.length; i++) {
         const p = state.pockets[i],
           m = pools[i];
-        const scale = Math.sqrt(Math.max(0.001, p.remaining));
-        // Lower the fluid surface as it clears; keep its contact geometry registered.
-        m.scale.set(1, 1, 1);
-        m.position.z = 0;
-        m.visible = p.remaining > 0.003;
-        (m.material as THREE.MeshPhysicalMaterial).opacity =
-          0.88 * Math.pow(p.remaining, 0.65);
+        // Recede the fluid's mask instead of scaling its world-space geometry,
+        // which would pull a raised decal away from the tissue surface.
+        const material = m.material as THREE.MeshPhysicalMaterial;
+        const spread = Math.max(0.2, Math.sqrt(p.remaining));
+        material.alphaMap!.repeat.setScalar(1 / spread);
+        material.alphaMap!.offset.setScalar((1 - 1 / spread) / 2);
+        m.visible = p.remaining > POCKET_CLEAR_THRESHOLD;
+        material.opacity = 0.3 + 0.58 * Math.pow(p.remaining, 0.65);
         (stains[i].material as THREE.MeshStandardMaterial).opacity =
           0.24 * (1 - state.clarity * 0.8);
       }
-      const target = state.pockets.find((p) => p.remaining > 0.01);
+      const bleeding =
+        state.bleeding >= BLEEDING_CONTROL_THRESHOLD && state.bleedPosition !== null;
+      const target = state.pockets.find((p) => p.remaining > POCKET_CLEAR_THRESHOLD);
+      const clearing = state.tool === "suction" && state.stage < 2;
       guide.visible =
-        Boolean(target) &&
         state.guided &&
-        (state.showAnatomy || state.stage === 0) &&
+        (bleeding ||
+          (Boolean(target) && clearing && (state.showAnatomy || state.stage === 0))) &&
         state.status === "running";
-      if (target)
+      const gm = guide.material as THREE.MeshBasicMaterial;
+      gm.color.set(bleeding ? 0xffb290 : 0xd6dfc2);
+      gm.opacity = bleeding ? 0.65 + Math.sin(time * 4) * 0.13 : 0.65;
+      guide.scale.setScalar(bleeding ? 1.65 : 1);
+      if (bleeding && state.bleedPosition) {
+        const [x, y] = state.bleedPosition;
+        guide.position.set(x, y, surface(x, y) + 0.095);
+      } else if (target)
         guide.position.set(
           target.x,
           target.y,
@@ -603,7 +611,7 @@ export function buildField(
       contact.scale.setScalar(
         Math.min(2.5, 0.75 + Math.max(0, state.clearance) * 2),
       );
-      bleed.visible = state.bleeding > 0.012 && state.bleedPosition !== null;
+      bleed.visible = bleeding;
       if (state.bleedPosition) {
         bleed.position.copy(new THREE.Vector3(...state.bleedPosition));
         bleed.position.z = surface(bleed.position.x, bleed.position.y) + 0.03;
