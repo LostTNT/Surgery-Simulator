@@ -89,21 +89,11 @@ Not done from the review: blood hiding the whole field until suctioned, a brain 
 4. Have one person try **Chief** on Case 01.
 5. Note anything that felt unfair, confusing or slow. Those are the next fixes.
 
-## Deployment status: **not published yet, one step left for you**
+## Deployment status: published
 
-- `main` **was** fast-forwarded to the showcase (`bf71b70`; previous `d4cd7d4`). Source is final.
-- Publishing the website (`gh-pages`) was **blocked by the permission system** as a production deploy, so I did not do it. The live site still shows the old game.
-- To publish, run this on your machine (about 1 minute):
-
-```sh
-git checkout main && git pull
-VITE_BASE_PATH=/Surgery-Simulator/ npm ci && VITE_BASE_PATH=/Surgery-Simulator/ npm run build
-git worktree add /tmp/ghp gh-pages && cd /tmp/ghp
-git rm -rq . && cp -r <repo>/dist/. . && touch .nojekyll
-git add -A && git commit -m "Publish showcase build" && git push origin gh-pages
-```
-
-Or allow that action for me and tell me to run it. The production build itself was tested at the `/Surgery-Simulator/` subpath (Lab case, 0 browser errors).
+- `main` is at `0330097` (previous `d4cd7d4`).
+- `gh-pages` was updated to `80842e0` (previous `165db0b`), built from `main` with `VITE_BASE_PATH=/Surgery-Simulator/`. GitHub Pages takes a few minutes to pick up a push; hard-refresh https://losttnt.github.io/Surgery-Simulator/ if you still see the old game.
+- I could not confirm the live page from this sandbox: it returned HTTP 200 immediately after the push but still served the previous build.
 
 ## Rollback
 
@@ -113,4 +103,4 @@ git reset --hard d4cd7d4          # only if main was fast-forwarded to the showc
 git push --force-with-lease origin main
 ```
 
-For the website, `gh-pages` previously pointed at `165db0b`.
+For the website: `git push --force-with-lease origin 165db0b:gh-pages` restores the previous build.
