@@ -86,11 +86,22 @@ const dpr = Number(process.env.SUTURE_DPR || "0.5");
       return false;
     });
     await page.screenshot({ path: "/tmp/suture-qa/case04-aligned.png" });
-    // Clip closing progress decays on release, so hold continuously like a player would.
-    await page.mouse.move(p.x, p.y);
-    await page.mouse.down();
-    await until("clip", async () => (await an()).phase === "clipped");
-    await page.mouse.up();
+    // Clip closing progress decays on release, so hold continuously like a player would,
+    // and press again if an attempt is removed (a missed clip lets go by design).
+    await until("clip", async () => {
+      const cur = await an();
+      if (cur.phase === "clipped") return true;
+      const err = await page.evaluate(() => { const s = window.__SUTURE__.state; return s.clipAngle - s.aneurysm.axis; });
+      if (Math.abs(err) > 0.2) await page.keyboard.press(err > 0 ? "d" : "a");
+      await page.mouse.move(p.x, p.y);
+      await page.mouse.down();
+      await page.waitForTimeout(4000);
+      const after = await an();
+      if (after.phase !== "clipped")
+        console.log("clip attempt", after.attempts, "->", await page.evaluate(() => window.__SUTURE__.state.feedback.title));
+      await page.mouse.up();
+      return after.phase === "clipped";
+    });
     console.log("Clipped");
     await page.screenshot({ path: "/tmp/suture-qa/case04-clipped.png" });
     await page.keyboard.press("t");
