@@ -104,11 +104,12 @@ export function buildAneurysm(scene: THREE.Scene, surface: Surface): AneurysmObj
   const pool = new THREE.Mesh(
     new THREE.CircleGeometry(1, 40),
     new THREE.MeshPhysicalMaterial({
-      color: 0x6e0b0e,
-      roughness: 0.18,
-      clearcoat: 1,
+      color: 0x2a0204,
+      roughness: 0.14,
+      clearcoat: 0.45,
+      envMapIntensity: 0.4,
       transparent: true,
-      opacity: 0.93,
+      opacity: 0.97,
       polygonOffset: true,
       polygonOffsetFactor: -4,
       depthWrite: false,
@@ -166,9 +167,9 @@ export function buildAneurysm(scene: THREE.Scene, surface: Surface): AneurysmObj
       if (built !== `${state.entry}:${state.caseId}`) build(state);
       const pulse = Math.sin((time * Math.PI * 2 * state.vitals.hr) / 60);
       const open = a.phase !== "clipped";
-      const swell = open ? 1 + 0.05 * pulse + a.tension * 0.1 : 0.55;
+      const swell = a.phase === "ruptured" ? 0.82 + 0.03 * pulse : open ? 1 + 0.05 * pulse + a.tension * 0.1 : 0.55;
       dome.scale.set(swell, swell, swell * (open ? 1 : 0.7));
-      wall.color.copy(base).lerp(open ? thin : dark, open ? a.tension * 0.75 : 1);
+      wall.color.copy(base).lerp(a.phase === "ruptured" ? dark : open ? thin : dark, a.phase === "ruptured" ? 0.55 : open ? a.tension * 0.75 : 1);
       wall.emissive.setRGB(a.tension * 0.2 * (0.7 + 0.3 * pulse), a.tension * 0.04, 0);
       bleb.visible = a.phase === "intact" && a.tension > 0.45;
       bleb.position.copy(dome.position).add(new THREE.Vector3(0.07, 0.04, 0.11));

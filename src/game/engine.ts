@@ -510,7 +510,13 @@ export class Engine {
   }
   updateCamera() {
     const f = this.forward();
-    this.camera.fov = (this.scope ? 24 : 52) / this.state.zoom;
+    // Keep the same horizontal view on narrow (portrait) screens by widening the vertical angle.
+    const baseFov = (this.scope ? 24 : 52) / this.state.zoom,
+      aspect = this.camera.aspect || 1.6;
+    this.camera.fov =
+      aspect < 1.3
+        ? Math.min(98, THREE.MathUtils.radToDeg(2 * Math.atan((Math.tan(THREE.MathUtils.degToRad(baseFov / 2)) * 1.3) / aspect)))
+        : baseFov;
     this.camera.updateProjectionMatrix();
     this.camera.position.copy(this.fp.pos);
     this.camBase.copy(this.fp.pos);

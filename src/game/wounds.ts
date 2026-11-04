@@ -41,10 +41,11 @@ export function buildWounds(
   const bruises: THREE.Mesh[] = [];
   const seen = new Set<string>();
   const poolMat = new THREE.MeshPhysicalMaterial({
-    color: 0x5c070b,
-    roughness: 0.16,
-    clearcoat: 1,
-    clearcoatRoughness: 0.1,
+    color: 0x2a0305,
+    roughness: 0.14,
+    clearcoat: 0.5,
+    clearcoatRoughness: 0.12,
+    envMapIntensity: 0.4,
     transparent: true,
     opacity: 0.88,
     depthWrite: false,
