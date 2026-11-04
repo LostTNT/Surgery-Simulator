@@ -31,6 +31,9 @@ export function letterFor(points: number): Letter {
  * A failed operation is capped below a passing grade.
  */
 export function gradeAttempt(s: GameState, par: number): Grade {
+  const resection = s.tumor && s.pockets.length
+    ? 1 - s.pockets.reduce((a, p) => a + p.remaining, 0) / s.pockets.length
+    : 1;
   const injury = 30 * (1 - clamp01(s.injury)),
     blood = 25 * (1 - clamp01(s.bloodLoss / 600)),
     speed = 15 * clamp01(1 - Math.max(0, s.elapsed - par) / par),
@@ -67,12 +70,19 @@ export function gradeAttempt(s: GameState, par: number): Grade {
           ? "None occurred"
           : `${s.complicationsHandled} of ${s.complicationsTriggered} handled`,
     },
-    {
-      label: "Pace",
-      value: speed,
-      max: 15,
-      note: `${Math.round(s.elapsed)}s against a ${par}s target`,
-    },
+    s.tumor
+      ? {
+          label: "Extent of resection",
+          value: 15 * clamp01((resection - 0.5) / 0.45),
+          max: 15,
+          note: `${Math.round(resection * 100)}% removed`,
+        }
+      : {
+          label: "Pace",
+          value: speed,
+          max: 15,
+          note: `${Math.round(s.elapsed)}s against a ${par}s target`,
+        },
   ];
   let points = Math.round(parts.reduce((a, p) => a + p.value, 0));
   if (s.status === "failed") points = Math.min(points, 39);

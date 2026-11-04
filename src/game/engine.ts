@@ -13,7 +13,8 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { BoneWindow, buildBurr } from "./access";
 import { SoftTissue } from "./soft-tissue";
-import { InstrumentTray, TRAY_TOOLS, CLIP_TRAY_TOOLS } from "./tool-tray";
+import { InstrumentTray, TRAY_TOOLS, CLIP_TRAY_TOOLS, TUMOR_TRAY_TOOLS } from "./tool-tray";
+import { buildTumor, type TumorObjects } from "./tumor";
 import { buildAneurysm, buildClip, type AneurysmObjects } from "./aneurysm";
 import { DIFFICULTIES, vitalsLevel, type Difficulty } from "./vitals";
 import {
@@ -63,6 +64,7 @@ export class Engine {
   brain: THREE.Mesh | null = null;
   field: FieldObjects | null = null;
   aneurysm: AneurysmObjects | null = null;
+  tumor: TumorObjects | null = null;
   tools: Partial<Record<Tool, THREE.Group>> = {};
   tip = new THREE.Vector3(0.55, -0.3, 0.62);
   target = this.tip.clone();
@@ -305,6 +307,7 @@ export class Engine {
         boneTexture,
       );
       this.aneurysm = buildAneurysm(this.scene, (x, y) => this.surface(x, y));
+      this.tumor = buildTumor(this.scene, (x, y) => this.surface(x, y), this.brain);
       this.bone = new BoneWindow(this.scene, boneTexture);
       for (const [name, model] of [
         ["suction", suction],
@@ -652,7 +655,11 @@ export class Engine {
       this.state.tool = "drill";
     }
     this.tray?.setTools(
-      procedure.kind === "aneurysm" ? CLIP_TRAY_TOOLS : TRAY_TOOLS,
+      procedure.kind === "aneurysm"
+        ? CLIP_TRAY_TOOLS
+        : procedure.kind === "tumor"
+          ? TUMOR_TRAY_TOOLS
+          : TRAY_TOOLS,
     );
   }
   setCase(id: CaseId) {
@@ -1198,12 +1205,17 @@ export class Engine {
       this.tray?.update(this.heldTool);
       if (this.dirty) {
         this.aneurysm?.update(this.state, now / 1000);
+        this.tumor?.update(this.state, now / 1000);
         this.field?.update(
           this.state,
           this.tip,
           this.surface(this.tip.x, this.tip.y),
           now / 1000,
         );
+        if (this.field && this.state.tumor) {
+          // Tumour lobules replace the fluid decals for this procedure.
+          for (const m of [...this.field.pools, ...this.field.stains]) m.visible = false;
+        }
         if (
           this.field &&
           (this.accessPhase !== "surgery" || this.trayView || !this.heldTool || this.state.inspectionActive)

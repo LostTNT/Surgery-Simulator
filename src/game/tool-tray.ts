@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import type { Tool } from "./simulation";
 export const TRAY_TOOLS: Tool[] = ["drill", "suction", "irrigation", "bipolar"];
-export const CLIP_TRAY_TOOLS: Tool[] = ["suction", "bipolar", "clip", "irrigation"];
+export const CLIP_TRAY_TOOLS: Tool[] = ["suction", "bipolar", "clip"];
+export const TUMOR_TRAY_TOOLS: Tool[] = ["suction", "bipolar"];
 const ALL_TOOLS: Tool[] = [...TRAY_TOOLS, "clip"];
 function layout(tools: Tool[]) {
   const step = tools.length > 4 ? 0.72 : 0.86,

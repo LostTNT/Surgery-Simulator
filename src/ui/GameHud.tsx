@@ -58,8 +58,15 @@ export function GameHud({
         : an.phase !== "clipped"
           ? 2
           : 3;
-  const step = an ? anStage : opening ? 0 : !collectionClear || needsBipolar ? 1 : !rinsed ? 2 : 3;
-  const required: Tool | null = an
+  const tu = view.tumor;
+  const tuResected = tu ? 1 - view.pockets.reduce((a, p) => a + p.remaining, 0) / Math.max(1, view.pockets.length) : 0;
+  const tuStage = !tu ? 0 : tu.feeders.some((f) => !f.done) ? 0 : tuResected < tu.target ? 1 : 2;
+  const step = an ? anStage : tu ? tuStage : opening ? 0 : !collectionClear || needsBipolar ? 1 : !rinsed ? 2 : 3;
+  const required: Tool | null = tu
+    ? needsBipolar
+      ? "bipolar"
+      : (["bipolar", "suction", null] as const)[tuStage]
+    : an
     ? opening
       ? null
       : ([ "bipolar", "suction", "clip", null ] as const)[anStage]
@@ -80,8 +87,15 @@ export function GameHud({
           ? an.clipProgress
           : Math.min(1, view.inspectionTime / INSPECTION_SECONDS)
     : 0;
+  const tuPercent = tu
+    ? tuStage === 0
+      ? tu.feeders.reduce((s, f) => s + (f.done ? 1 : f.progress), 0) / tu.feeders.length
+      : tuStage === 1
+        ? Math.min(1, tuResected / tu.target)
+        : Math.min(1, view.inspectionTime / INSPECTION_SECONDS)
+    : 0;
   const percent = Math.round(
-    an ? anPercent * 100 : (opening
+    tu ? tuPercent * 100 : an ? anPercent * 100 : (opening
       ? view.cutProgress
       : needsBipolar
         ? Math.max(0, 1 - view.bleeding / Math.max(caseInfo.initialBleeding, 0.15))
@@ -98,7 +112,13 @@ export function GameHud({
     "Rotate the clip with A / D until it lies along the artery, centre it on the neck and hold to close.",
     examining ? "Keep instruments idle while the final check completes." : "The aneurysm is secured. Click Examine field to finish.",
   ];
-  const titles = an ? anTitles : [
+  const tuTitles = ["Seal the feeders", "Debulk the tumour", examining ? "Examining the field…" : "Examine the field"];
+  const tuDetails = [
+    "Hold bipolar on each marked feeding vessel for a moment. Cutting past an unsealed feeder makes it bleed.",
+    "Hold suction on the pale tumour, a piece at a time. Keep out of the green motor area.",
+    examining ? "Keep instruments idle while the final check completes." : "Resection is complete and the motor area is intact. Click Examine field.",
+  ];
+  const titles = tu ? tuTitles : an ? anTitles : [
     view.accessPhase === "lifting"
       ? "Opening the window…"
       : cutReady
@@ -108,7 +128,7 @@ export function GameHud({
     "Rinse the field",
     examining ? "Examining the field…" : "Examine the field",
   ];
-  const details = an ? anDetails : [
+  const details = tu ? tuDetails : an ? anDetails : [
     cutReady
       ? "The cut is complete. Lift the freed flap to continue."
       : "Hold the burr along the dotted path. Move slowly to cut through.",
@@ -152,7 +172,13 @@ export function GameHud({
           : needsBipolar && !opening
             ? "Hold bipolar on the marked source until bleeding stops."
             : details[step];
-  const steps = an
+  const steps = tu
+    ? ["Feeders", "Debulk", "Examine"].map((label, i) => ({
+        label,
+        done: i < tuStage || (i === 2 && view.status === "success"),
+        active: i === tuStage,
+      }))
+    : an
     ? ["Tethers", "Neck", "Clip", "Examine"].map((label, i) => ({
         label,
         done: i < anStage || (i === 3 && view.status === "success"),
@@ -189,7 +215,9 @@ export function GameHud({
             </ol>
             <div className="task-progress">
               <span>
-                {an
+                {tu
+                  ? [`Feeders sealed`, `${Math.round(tuResected * 100)}% resected · target ${Math.round(tu.target * 100)}%`, examining ? "Examination in progress" : "Examination not started"][tuStage]
+                  : an
                   ? ["Tethers released", "Neck freed", "Clip closing", examining ? "Examination in progress" : "Examination not started"][anStage]
                   : opening
                   ? "Bone cutting path"
@@ -367,7 +395,13 @@ export function GameHud({
                 <span>{examining ? "Checking…" : canExamine ? "Ready" : "Preparation"}</span>
               </div>
               <ul className="examine-checklist">
-                {(an
+                {(tu
+                  ? [
+                      { done: tu.feeders.every((f) => f.done), label: "Feeding vessels sealed" },
+                      { done: tuResected >= tu.target, label: `Tumour ${Math.round(tuResected * 100)}% removed · target ${Math.round(tu.target * 100)}%` },
+                      { done: bleedingControlled, label: bleedingControlled ? "No active bleeding" : "Control the bleeding with bipolar" },
+                    ]
+                  : an
                   ? [
                       { done: an.bridges.every((b) => b.done) && an.dissection >= 0.9, label: "Neck freed" },
                       { done: an.phase === "clipped", label: "Clip across the neck" },

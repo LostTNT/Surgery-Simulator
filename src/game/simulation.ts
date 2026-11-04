@@ -11,8 +11,8 @@ import {
 export type { Difficulty, Vitals };
 export type Tool = "suction" | "irrigation" | "bipolar" | "drill" | "clip";
 export type Status = "ready" | "running" | "paused" | "success" | "failed";
-export type CaseId = "lab" | "case01" | "case02" | "case03" | "case04";
-export type CaseKind = "washout" | "aneurysm";
+export type CaseId = "lab" | "case01" | "case02" | "case03" | "case04" | "case05";
+export type CaseKind = "washout" | "aneurysm" | "tumor";
 export type Vec = [number, number, number];
 export interface Pocket {
   x: number;
@@ -90,6 +90,42 @@ export function createAneurysm(): AneurysmState {
     attempts: 0,
   };
 }
+export interface TumorState {
+  /** Motor cortex: touching it with an active instrument injures function. */
+  motor: { x: number; y: number; rx: number; ry: number };
+  feeders: { x: number; y: number; progress: number; done: boolean; bleeding: boolean }[];
+  /** Which feeder supplies each lobule (index into `feeders`). */
+  link: number[];
+  cleared: boolean[];
+  motorContact: number;
+  /** Fraction of tumour that must be removed before the field can be examined. */
+  target: number;
+}
+export const TUMOR_TARGET = 0.85;
+export function createTumor(): TumorState {
+  return {
+    motor: { x: 0.64, y: 0.3, rx: 0.32, ry: 0.5 },
+    feeders: [
+      { x: -0.88, y: 0.3, progress: 0, done: false, bleeding: false },
+      { x: -0.05, y: 0.8, progress: 0, done: false, bleeding: false },
+      { x: -0.2, y: -0.44, progress: 0, done: false, bleeding: false },
+    ],
+    link: [0, 1, 2, 1, 2],
+    cleared: [false, false, false, false, false],
+    motorContact: 0,
+    target: TUMOR_TARGET,
+  };
+}
+export function tumorResected(s: GameState) {
+  return s.pockets.length === 0 ? 1 : 1 - s.pockets.reduce((a, p) => a + p.remaining, 0) / s.pockets.length;
+}
+export function tumorDone(s: GameState) {
+  return (
+    !!s.tumor &&
+    s.tumor.feeders.every((f) => f.done) &&
+    tumorResected(s) >= s.tumor.target
+  );
+}
 export interface GameState {
   caseId: CaseId;
   status: Status;
@@ -135,6 +171,9 @@ export interface GameState {
   complicationsTriggered: number;
   complicationsHandled: number;
   aneurysm: AneurysmState | null;
+  tumor: TumorState | null;
+  /** Name of the unresolved complication, if any (used to count handled ones). */
+  activeComplication: string | null;
   /** Orientation of the held clip in radians. */
   clipAngle: number;
 }
@@ -288,6 +327,34 @@ export const CASES: Record<CaseId, ProcedureCase> = {
       { title: "Examine the field", detail: "Check that the aneurysm is sealed and bleeding is controlled.", tool: "irrigation" },
     ],
   },
+  case05: {
+    kind: "tumor",
+    preOpened: true,
+    name: "Tumour resection",
+    label: "Case 05",
+    difficulty: "Advanced",
+    duration: "MOTOR CORTEX",
+    parSeconds: 330,
+    brief:
+      "The bone is open. Seal the three feeding vessels with bipolar, then debulk the tumour with suction until at least 85% is gone. Stay out of the green motor area: it moves the patient's hand.",
+    pockets: [
+      [-0.45, 0.2, 0.34],
+      [-0.1, 0.45, 0.3],
+      [-0.15, -0.05, 0.32],
+      [0.08, 0.3, 0.24],
+      [-0.62, -0.2, 0.26],
+    ],
+    suctionRate: 0.2,
+    irrigationRate: 0.2,
+    clarityRequired: 0,
+    bleedingSource: null,
+    initialBleeding: 0,
+    objectives: [
+      { title: "Seal the feeders", detail: "Coagulate each marked feeding vessel before cutting beyond it.", tool: "bipolar" },
+      { title: "Debulk the tumour", detail: "Aspirate the tumour in pieces. Never touch the motor area.", tool: "suction" },
+      { title: "Examine the field", detail: "Check the resection and that the motor area is intact.", tool: "irrigation" },
+    ],
+  },
 };
 export const TOOLS: Record<
   Tool,
@@ -397,6 +464,8 @@ export function createState(
     complicationsTriggered: 0,
     complicationsHandled: 0,
     aneurysm: procedure.kind === "aneurysm" ? createAneurysm() : null,
+    tumor: procedure.kind === "tumor" ? createTumor() : null,
+    activeComplication: null,
     clipAngle: procedure.kind === "aneurysm" ? ANEURYSM_AXIS + 0.75 : 0,
   };
 }
@@ -465,7 +534,7 @@ export function inspectionReady(s: GameState) {
   return (
     s.status === "running" &&
     s.sourceControlled &&
-    pocketsCleared(s) &&
+    (s.tumor ? tumorDone(s) : pocketsCleared(s)) &&
     s.clarity >= CASES[s.caseId].clarityRequired &&
     s.bleeding < BLEEDING_CONTROL_THRESHOLD &&
     (!s.aneurysm || s.aneurysm.phase === "clipped")
@@ -482,6 +551,15 @@ export function beginInspection(s: GameState): boolean {
     cancelInspection(s);
     if (!s.sourceControlled || s.bleeding >= BLEEDING_CONTROL_THRESHOLD)
       setFeedback(s, "Control bleeding before examining.", "Use bipolar at the marked bleeding source.", "warning");
+    else if (s.tumor && !tumorDone(s))
+      setFeedback(
+        s,
+        s.tumor.feeders.some((f) => !f.done) ? "Feeders remain open." : "More tumour to remove.",
+        s.tumor.feeders.some((f) => !f.done)
+          ? "Seal every feeding vessel with bipolar."
+          : `Debulk to at least ${Math.round(s.tumor.target * 100)}% resection.`,
+        "warning",
+      );
     else if (!pocketsCleared(s)) {
       const left = s.pockets.filter((p) => p.remaining > POCKET_CLEAR_THRESHOLD).length;
       setFeedback(s, "Fluid remains in the field.", `Clear the ${left} remaining ${left === 1 ? "pocket" : "pockets"} with suction.`, "warning");
@@ -661,6 +739,59 @@ function stepAneurysm(s: GameState, c: Contact, dt: number) {
     }
   } else a.clipProgress = 0;
 }
+function stepTumor(s: GameState, c: Contact, dt: number) {
+  const t = s.tumor;
+  if (!t) return;
+  const [tx, ty] = c.tip,
+    active = s.action && c.inField,
+    m = t.motor;
+  const inMotor = ((tx - m.x) / m.rx) ** 2 + ((ty - m.y) / m.ry) ** 2 < 1;
+  if (active && inMotor && c.clearance < 0.3 && (s.tool === "suction" || s.tool === "bipolar")) {
+    s.injury = Math.min(1, s.injury + dt * 0.55 * hazard(s));
+    t.motorContact += dt;
+    if (!s.said.includes("motor")) {
+      s.said.push("motor");
+      logEvent(s, "injury", "Motor area contact: eloquent cortex", [tx, ty, 0]);
+      say(s, "That is the motor strip. I am seeing hand twitches. Back off.", "danger");
+    }
+    setFeedback(s, "Motor area. Withdraw.", "This cortex moves the hand. Work only on the pale tumour.", "danger");
+  }
+  if (active && s.tool === "bipolar" && c.clearance > 0 && c.clearance < 0.2)
+    for (const f of t.feeders)
+      if (!f.done && !f.bleeding && near([f.x, f.y], tx, ty, 0.085)) {
+        f.progress = Math.min(1, f.progress + dt / 1.0);
+        if (f.progress >= 1) {
+          f.done = true;
+          s.action = false;
+          logEvent(s, "stage", "Feeding vessel sealed", [f.x, f.y, 0]);
+          setFeedback(
+            s,
+            t.feeders.every((x) => x.done) ? "All feeders sealed." : "Feeder sealed.",
+            t.feeders.every((x) => x.done)
+              ? "Pick up suction and debulk the tumour."
+              : "Find the next marked feeder.",
+            "good",
+          );
+        }
+      }
+  s.pockets.forEach((p, i) => {
+    if (p.remaining > POCKET_CLEAR_THRESHOLD || t.cleared[i]) return;
+    t.cleared[i] = true;
+    const f = t.feeders[t.link[i]];
+    if (f && !f.done && !f.bleeding) {
+      f.bleeding = true;
+      s.bleedPosition = [f.x, f.y, 0];
+      s.bleeding = Math.max(s.bleeding, 0.45);
+      s.sourceControlled = false;
+      s.activeComplication = "feeder";
+      s.complicationsTriggered++;
+      s.action = false;
+      logEvent(s, "complication", "Cut past an unsealed feeding vessel; it began to bleed", [f.x, f.y, 0]);
+      setFeedback(s, "A feeder is bleeding.", "Switch to bipolar and seal the marked vessel.", "danger");
+      say(s, "Bleeding at the tumour bed. Control it.", "warning");
+    }
+  });
+}
 /** Blood loss, monitor values, remarks and collapse. Returns true if the patient failed. */
 function stepPhysiology(s: GameState, dt: number): boolean {
   const bleeding = s.bleeding > 0.02;
@@ -724,6 +855,7 @@ export function tick(s: GameState, c: Contact, dt: number) {
   }
   if (stepPhysiology(s, dt)) return;
   stepAneurysm(s, c, dt);
+  stepTumor(s, c, dt);
   if (s.status !== "running") return;
   const active = s.action && c.inField;
   if (active) s.activeTime += dt;
@@ -737,11 +869,13 @@ export function tick(s: GameState, c: Contact, dt: number) {
   const physicalContact = (c.inField && c.clearance < -0.035) || c.shaftContact;
   const nearBridge =
     s.aneurysm?.bridges.some((b) => !b.done && near([b.x, b.y], c.tip[0], c.tip[1], 0.1)) ?? false;
+  const nearFeeder =
+    s.tumor?.feeders.some((f) => !f.done && near([f.x, f.y], c.tip[0], c.tip[1], 0.11)) ?? false;
   // Heat on the dome wall is judged by the aneurysm's own tension, not as cortical injury.
   const nearDome =
     s.aneurysm?.phase === "intact" && near(s.aneurysm.dome, c.tip[0], c.tip[1], 0.15);
   const thermalInjury =
-    active && s.tool === "bipolar" && !nearSource && !nearBridge && !nearDome && c.clearance < 0.18;
+    active && s.tool === "bipolar" && !nearSource && !nearBridge && !nearFeeder && !nearDome && c.clearance < 0.18;
   if (physicalContact || thermalInjury) {
     cancelInspection(s);
     const rate = c.vessel ? 2.7 : thermalInjury ? 1.5 : 1.15;
@@ -879,6 +1013,16 @@ export function tick(s: GameState, c: Contact, dt: number) {
           s.sourceControlled = true;
           logEvent(s, "source", "Prepared bleeding source controlled");
         }
+        if (s.activeComplication) {
+          s.complicationsHandled++;
+          logEvent(s, "resolved", "Bleeding from a feeding vessel controlled");
+          s.activeComplication = null;
+          const f = s.tumor?.feeders.find((x) => x.bleeding);
+          if (f) {
+            f.bleeding = false;
+            f.done = true;
+          }
+        }
       }
       s.usefulTime += dt;
       setFeedback(
@@ -920,7 +1064,7 @@ export function tick(s: GameState, c: Contact, dt: number) {
       "Above the working plane.",
       "Lower deliberately. The tip marker shows your approach.",
     );
-  if (pocketsCleared(s) && s.stage < 2) {
+  if (!s.tumor && pocketsCleared(s) && s.stage < 2) {
     s.stage = 2;
     logEvent(s, "stage", "Collection cleared");
     setFeedback(
