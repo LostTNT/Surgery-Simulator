@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createState, tick, CASES, score, type Contact } from "../src/game/simulation.ts";
+import { createState, tick, CASES, score, inspectionReady, type Contact } from "../src/game/simulation.ts";
 import { gradeAttempt, letterFor } from "../src/game/grading.ts";
 import { vitalsLevel, vitalsTarget, BASE_VITALS } from "../src/game/vitals.ts";
 
@@ -108,4 +108,134 @@ test("letters are monotonic in points", () => {
 test("vitals targets are bounded", () => {
   const worst = vitalsTarget({ bleeding: 1, bloodLoss: 5000, injury: 1, shock: 1 });
   assert.ok(worst.sys >= 38 && worst.hr <= 178 && worst.spo2 >= 78);
+});
+
+// ---- Aneurysm clipping ----
+import { createAneurysm, neckFrame, ruptureAneurysm } from "../src/game/simulation.ts";
+function aneurysmRun() {
+  const s = createState("case04");
+  s.status = "running";
+  return s;
+}
+function at(x: number, y: number, extra: Partial<Contact> = {}): Contact {
+  return { ...contact, clearance: 0.11, tip: [x, y, 0.2], pocket: -1, ...extra };
+}
+function hold(s: ReturnType<typeof createState>, c: Contact, seconds: number) {
+  s.action = true;
+  for (let i = 0; i < seconds * 60 && s.status === "running"; i++) {
+    tick(s, c, 1 / 60);
+    if (!s.action) break;
+  }
+}
+test("the aneurysm case starts with an intact aneurysm, no pockets and the bone open", () => {
+  const s = createState("case04");
+  assert.equal(s.aneurysm?.phase, "intact");
+  assert.equal(s.pockets.length, 0);
+  assert.ok(CASES.case04.preOpened);
+  assert.equal(s.aneurysm?.bridges.length, 2);
+});
+test("bipolar on the tethers releases them without injury", () => {
+  const s = aneurysmRun();
+  s.tool = "bipolar";
+  for (const b of s.aneurysm!.bridges) hold(s, at(b.x, b.y), 2);
+  assert.ok(s.aneurysm!.bridges.every((b) => b.done));
+  assert.equal(s.injury, 0);
+  assert.equal(s.aneurysm!.phase, "intact");
+});
+test("bipolar on the dome ruptures it and starts a bleed that bipolar cannot seal", () => {
+  const s = aneurysmRun();
+  s.tool = "bipolar";
+  hold(s, at(...s.aneurysm!.dome), 3);
+  assert.equal(s.aneurysm!.phase, "ruptured");
+  assert.ok(s.bleeding >= 0.7);
+  assert.equal(s.complicationsTriggered, 1);
+  assert.ok(s.events.some((e) => e.type === "rupture"));
+  const before = s.bleeding;
+  hold(s, at(s.aneurysm!.dome[0], s.aneurysm!.dome[1], { bleedDistance: 0 }), 3);
+  assert.ok(s.bleeding >= before, "bipolar must not reduce an arterial rupture");
+});
+test("quiet hands let wall tension settle", () => {
+  const s = aneurysmRun();
+  s.aneurysm!.tension = 0.6;
+  for (let i = 0; i < 600; i++) tick(s, at(2, 2, { inField: true }), 1 / 60);
+  assert.ok(s.aneurysm!.tension < 0.1);
+});
+test("fast movement near the dome raises tension", () => {
+  const s = aneurysmRun();
+  s.tool = "suction";
+  for (let i = 0; i < 120; i++) tick(s, at(...s.aneurysm!.dome, { speed: 2.4, clearance: 0.11 }), 1 / 60);
+  assert.ok(s.aneurysm!.tension > 0.5);
+});
+function prepared() {
+  const s = aneurysmRun();
+  s.tool = "bipolar";
+  for (const b of s.aneurysm!.bridges) hold(s, at(b.x, b.y), 2);
+  s.tool = "suction";
+  hold(s, at(...s.aneurysm!.work), 9);
+  return s;
+}
+test("suction beside the neck frees it only after the tethers are released", () => {
+  const raw = aneurysmRun();
+  raw.tool = "suction";
+  hold(raw, at(...raw.aneurysm!.work), 12);
+  assert.equal(raw.aneurysm!.dissection, 0);
+  const s = prepared();
+  assert.ok(s.aneurysm!.dissection >= 0.9);
+});
+test("a correctly aligned clip seals the aneurysm and allows examination", () => {
+  const s = prepared();
+  s.tool = "clip";
+  s.clipAngle = s.aneurysm!.axis + 0.1;
+  hold(s, at(...s.aneurysm!.clipSpot), 1);
+  assert.equal(s.aneurysm!.phase, "clipped");
+  s.action = false;
+  assert.equal(inspectionReady(s), true);
+});
+test("a misaligned clip is removed and the aneurysm stays open", () => {
+  const s = prepared();
+  s.tool = "clip";
+  s.clipAngle = s.aneurysm!.axis + 1.2;
+  hold(s, at(...s.aneurysm!.clipSpot), 1);
+  assert.equal(s.aneurysm!.phase, "intact");
+  assert.equal(inspectionReady(s), false);
+});
+test("a clip on the artery itself pinches the parent vessel", () => {
+  const s = prepared();
+  s.tool = "clip";
+  s.clipAngle = s.aneurysm!.axis;
+  hold(s, at(...s.aneurysm!.neck), 1);
+  assert.equal(s.aneurysm!.phase, "intact");
+  assert.ok(s.injury > 0.15);
+});
+test("clipping before the neck is free slips and adds tension", () => {
+  const s = aneurysmRun();
+  s.tool = "clip";
+  s.clipAngle = s.aneurysm!.axis;
+  hold(s, at(...s.aneurysm!.clipSpot), 1);
+  assert.equal(s.aneurysm!.phase, "intact");
+  assert.ok(s.aneurysm!.tension > 0.15);
+});
+test("after a rupture, suction lets the surgeon see; clipping blind misses", () => {
+  const blind = prepared();
+  ruptureAneurysm(blind, "test");
+  blind.tool = "clip";
+  blind.clipAngle = blind.aneurysm!.axis;
+  hold(blind, at(...blind.aneurysm!.clipSpot), 1);
+  assert.equal(blind.aneurysm!.phase, "ruptured", "blind clip should miss");
+  const seen = prepared();
+  ruptureAneurysm(seen, "test");
+  seen.tool = "suction";
+  hold(seen, at(...seen.aneurysm!.dome), 1);
+  seen.tool = "clip";
+  seen.clipAngle = seen.aneurysm!.axis;
+  hold(seen, at(...seen.aneurysm!.clipSpot), 1);
+  assert.equal(seen.aneurysm!.phase, "clipped");
+  assert.equal(seen.bleeding, 0);
+  assert.equal(seen.complicationsHandled, 1);
+  assert.equal(seen.sourceControlled, true);
+});
+test("neck frame reports position relative to the artery", () => {
+  const a = createAneurysm();
+  const spot = neckFrame(a, ...a.clipSpot);
+  assert.ok(Math.abs(spot.along) < 1e-9 && Math.abs(spot.side - 0.05) < 1e-9);
 });

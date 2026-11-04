@@ -2233,3 +2233,14 @@ input {
 .surgeon-notes p { margin: 0; font-size: 13px; line-height: 1.5; color: #d5e3d9; }
 .debrief-report .primary-button, .debrief-report .secondary-button { margin: 0; }
 .debrief-report > .primary-button + .secondary-button { margin-top: -8px; }
+
+/* ---- Aneurysm tension ---- */
+.tension { margin-top: 12px; display: grid; gap: 5px; }
+.tension span { font: 9px ui-monospace, monospace; letter-spacing: 0.1em; color: #8fb0a0; }
+.tension i { display: block; height: 5px; border-radius: 3px; background: #ffffff1a; overflow: hidden; }
+.tension b { display: block; height: 100%; background: var(--sage); transition: width 0.12s linear; }
+.tension.high b { background: #e6c27a; }
+.tension.high span { color: #f1d99a; }
+.tension.ruptured b { background: #ee8d7a; }
+.tension.ruptured span { color: #ffb4a1; animation: alarm-text 0.8s ease-in-out infinite; }
+@keyframes alarm-text { 50% { opacity: 0.45; } }

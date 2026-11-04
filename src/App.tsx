@@ -400,7 +400,7 @@ export default function App() {
                     <span>
                       <strong>{CASES[id].name}</strong>
                       <small>
-                        {CASES[id].difficulty} · {CASES[id].pockets.length} pockets
+                        {CASES[id].difficulty} · {CASES[id].kind === "washout" ? `${CASES[id].pockets.length} pockets` : CASES[id].duration.toLowerCase()}
                       </small>
                     </span>
                     {progress[id] !== undefined ? (

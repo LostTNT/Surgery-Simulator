@@ -13,7 +13,8 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { BoneWindow, buildBurr } from "./access";
 import { SoftTissue } from "./soft-tissue";
-import { InstrumentTray, TRAY_TOOLS } from "./tool-tray";
+import { InstrumentTray, TRAY_TOOLS, CLIP_TRAY_TOOLS } from "./tool-tray";
+import { buildAneurysm, buildClip, type AneurysmObjects } from "./aneurysm";
 import { DIFFICULTIES, vitalsLevel, type Difficulty } from "./vitals";
 import {
   createState,
@@ -25,6 +26,7 @@ import {
   beginInspection as startInspection,
   cancelInspection,
   initializeProcedure,
+  CASES,
   type GameState,
   type CaseId,
   type Tool,
@@ -60,6 +62,7 @@ export class Engine {
   host: HTMLElement;
   brain: THREE.Mesh | null = null;
   field: FieldObjects | null = null;
+  aneurysm: AneurysmObjects | null = null;
   tools: Partial<Record<Tool, THREE.Group>> = {};
   tip = new THREE.Vector3(0.55, -0.3, 0.62);
   target = this.tip.clone();
@@ -301,6 +304,7 @@ export class Engine {
         this.brain,
         boneTexture,
       );
+      this.aneurysm = buildAneurysm(this.scene, (x, y) => this.surface(x, y));
       this.bone = new BoneWindow(this.scene, boneTexture);
       for (const [name, model] of [
         ["suction", suction],
@@ -320,6 +324,10 @@ export class Engine {
         this.tools[name] = group;
         this.scene.add(group);
       }
+      const clip = buildClip();
+      clip.name = "clip";
+      this.tools.clip = clip;
+      this.scene.add(clip);
       const burr = buildBurr();
       burr.name = "drill";
       burr.rotation.set(0, -0.85, -0.48);
@@ -631,12 +639,26 @@ export class Engine {
     this.dirty = true;
     this.emit();
   }
+  /** Open or reset the bone window for the current case and lay out its tray. */
+  prepareAccess() {
+    const procedure = CASES[this.state.caseId];
+    this.bone?.reset();
+    if (procedure.preOpened && this.bone) {
+      this.bone.openInstant();
+      this.accessPhase = "lifting";
+      this.state.tool = "suction";
+    } else {
+      this.accessPhase = "bone";
+      this.state.tool = "drill";
+    }
+    this.tray?.setTools(
+      procedure.kind === "aneurysm" ? CLIP_TRAY_TOOLS : TRAY_TOOLS,
+    );
+  }
   setCase(id: CaseId) {
     const old = this.state;
     this.state = createState(id, old.guided, old.entry + 1, old.difficulty);
-    this.state.tool = "drill";
-    this.accessPhase = "bone";
-    this.bone?.reset();
+    this.prepareAccess();
     this.softTissue?.reset();
     this.depthOffset = 0;
     this.stageSnapshots.clear();
@@ -671,11 +693,7 @@ export class Engine {
         this.state,
         this.stageSnapshots.get(this.state.stage),
       );
-      if (this.accessPhase !== "surgery") {
-        this.bone?.reset();
-        this.accessPhase = "bone";
-        this.state.tool = "drill";
-      }
+      if (this.accessPhase !== "surgery") this.prepareAccess();
       this.tip.set(0.55, -0.3, 0.62);
       this.heldTool = null;
       this.trayView = true;
@@ -907,6 +925,18 @@ export class Engine {
         return;
       }
       if (e.key.toLowerCase() === "t") this.toggleTray();
+      if (
+        this.state.tool === "clip" &&
+        this.heldTool === "clip" &&
+        !this.trayView &&
+        ["a", "d", "arrowleft", "arrowright"].includes(e.key.toLowerCase())
+      ) {
+        const step = this.precision ? 0.025 : 0.09;
+        const dir = ["a", "arrowleft"].includes(e.key.toLowerCase()) ? 1 : -1;
+        this.state.clipAngle += dir * step;
+        e.preventDefault();
+        this.dirty = true;
+      }
       if (e.key.toLowerCase() === "e") {
         if (e.repeat) return;
         e.preventDefault();
@@ -916,7 +946,7 @@ export class Engine {
       }
       if (["1", "2", "3", "4"].includes(e.key)) {
         if (this.trayView && !this.heldTool)
-          this.selectTool(TRAY_TOOLS[+e.key - 1]);
+          this.selectTool((this.tray?.tools ?? TRAY_TOOLS)[+e.key - 1]);
         else if (!this.trayView) this.toggleTray();
       }
       if (e.key.toLowerCase() === "h") this.toggleAnatomy();
@@ -1008,6 +1038,7 @@ export class Engine {
       vessel,
       shaftContact,
       tip: [this.tip.x, this.tip.y, this.tip.z],
+      speed: movement * 60,
       ...(injuryPoint
         ? {
             injuryPoint: [injuryPoint.x, injuryPoint.y, injuryPoint.z] as [
@@ -1134,6 +1165,17 @@ export class Engine {
             !this.state.inspectionActive;
           if (this.trayView) model.position.set(0.7, -2.5, 1.6);
           else model.position.copy(this.tip);
+          if (name === "clip") {
+            const jaws = model.getObjectByName("jaws");
+            if (jaws) {
+              jaws.rotation.z = this.state.clipAngle;
+              const close = this.state.aneurysm?.clipProgress ?? 0;
+              for (const [blade, sign] of [["bladeA", 1], ["bladeB", -1]] as const) {
+                const b = jaws.getObjectByName(blade);
+                if (b) b.position.y = sign * (0.045 - 0.03 * close);
+              }
+            }
+          }
           if (
             name === "drill" &&
             this.state.action &&
@@ -1155,6 +1197,7 @@ export class Engine {
       }
       this.tray?.update(this.heldTool);
       if (this.dirty) {
+        this.aneurysm?.update(this.state, now / 1000);
         this.field?.update(
           this.state,
           this.tip,

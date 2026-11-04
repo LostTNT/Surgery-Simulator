@@ -2,15 +2,18 @@ import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import type { Tool } from "./simulation";
 export const TRAY_TOOLS: Tool[] = ["drill", "suction", "irrigation", "bipolar"];
+export const CLIP_TRAY_TOOLS: Tool[] = ["suction", "bipolar", "clip", "irrigation"];
+const ALL_TOOLS: Tool[] = [...TRAY_TOOLS, "clip"];
+function layout(tools: Tool[]) {
+  const step = tools.length > 4 ? 0.72 : 0.86,
+    start = tools.length > 4 ? -1.9 : -1.65;
+  return tools.map((tool, i) => ({ tool, x: 2.25, y: start + i * step, z: 0.3 }));
+}
 export class InstrumentTray {
   group = new THREE.Group();
   models = new Map<Tool, THREE.Group>();
-  slots = TRAY_TOOLS.map((tool, i) => ({
-    tool,
-    x: 2.25,
-    y: -1.65 + i * 0.86,
-    z: 0.3,
-  }));
+  tools: Tool[] = TRAY_TOOLS;
+  slots = layout(TRAY_TOOLS);
   constructor(
     scene: THREE.Scene,
     models: Partial<Record<Tool, THREE.Group>>,
@@ -45,19 +48,31 @@ export class InstrumentTray {
     liner.receiveShadow = true;
     liner.userData.tray = true;
     this.group.add(liner);
-    for (const slot of this.slots) {
-      const model = models[slot.tool]!.clone();
+    for (const tool of ALL_TOOLS) {
+      const source = models[tool];
+      if (!source) continue;
+      const model = source.clone();
       model.visible = true;
       model.rotation.set(0, 0, 0);
-      model.position.set(slot.x, slot.y, slot.z);
-      model.userData.tool = slot.tool;
-      this.models.set(slot.tool, model);
+      // The applier lies flat on the tray with the clip open and square.
+      model.getObjectByName("shaft")?.rotation.set(0, 0, 0);
+      model.userData.tool = tool;
+      this.models.set(tool, model);
       this.group.add(model);
     }
+    this.setTools(TRAY_TOOLS);
     scene.add(this.group);
   }
+  /** Choose which instruments this procedure lays out, and where. */
+  setTools(tools: Tool[]) {
+    this.tools = tools;
+    this.slots = layout(tools);
+    for (const slot of this.slots)
+      this.models.get(slot.tool)?.position.set(slot.x, slot.y, slot.z);
+  }
   update(held: Tool | null) {
-    for (const [tool, model] of this.models) model.visible = held !== tool;
+    for (const [tool, model] of this.models)
+      model.visible = held !== tool && this.tools.includes(tool);
   }
   hit(ray: THREE.Raycaster) {
     const hit = ray.intersectObject(this.group, true).find((hit) => {

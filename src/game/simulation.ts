@@ -9,9 +9,10 @@ import {
   type Vitals,
 } from "./vitals.ts";
 export type { Difficulty, Vitals };
-export type Tool = "suction" | "irrigation" | "bipolar" | "drill";
+export type Tool = "suction" | "irrigation" | "bipolar" | "drill" | "clip";
 export type Status = "ready" | "running" | "paused" | "success" | "failed";
-export type CaseId = "lab" | "case01" | "case02" | "case03";
+export type CaseId = "lab" | "case01" | "case02" | "case03" | "case04";
+export type CaseKind = "washout" | "aneurysm";
 export type Vec = [number, number, number];
 export interface Pocket {
   x: number;
@@ -40,6 +41,54 @@ export interface Contact {
   tip: Vec;
   bleedDistance: number;
   injuryPoint?: Vec;
+  /** Tip speed in scene units per second. */
+  speed?: number;
+}
+export interface AneurysmState {
+  /** Dome centre, neck centre and the working spot for freeing the neck (scene x, y). */
+  dome: [number, number];
+  neck: [number, number];
+  work: [number, number];
+  /** Where a correctly placed clip centres, and the artery's direction (radians). */
+  clipSpot: [number, number];
+  axis: number;
+  bridges: { x: number; y: number; progress: number; done: boolean }[];
+  dissection: number;
+  tension: number;
+  phase: "intact" | "ruptured" | "clipped";
+  /** Time until which the neck is visible after suctioning a rupture. */
+  visibleUntil: number;
+  clipProgress: number;
+  attempts: number;
+}
+export const ANEURYSM_AXIS = 0.894;
+export function createAneurysm(): AneurysmState {
+  const axis = ANEURYSM_AXIS,
+    ax = Math.cos(axis),
+    ay = Math.sin(axis),
+    px = -ay,
+    py = ax,
+    neck: [number, number] = [0.22, -0.1];
+  const dome: [number, number] = [neck[0] + 0.17 * px, neck[1] + 0.17 * py];
+  return {
+    dome,
+    neck,
+    work: [neck[0] - 0.04 * px, neck[1] - 0.04 * py],
+    clipSpot: [neck[0] + 0.05 * px, neck[1] + 0.05 * py],
+    axis,
+    bridges: [1, -1].map((side) => ({
+      x: dome[0] + side * 0.2 * ax,
+      y: dome[1] + side * 0.2 * ay,
+      progress: 0,
+      done: false,
+    })),
+    dissection: 0,
+    tension: 0,
+    phase: "intact",
+    visibleUntil: -1,
+    clipProgress: 0,
+    attempts: 0,
+  };
 }
 export interface GameState {
   caseId: CaseId;
@@ -85,8 +134,14 @@ export interface GameState {
   said: string[];
   complicationsTriggered: number;
   complicationsHandled: number;
+  aneurysm: AneurysmState | null;
+  /** Orientation of the held clip in radians. */
+  clipAngle: number;
 }
 export interface ProcedureCase {
+  kind: CaseKind;
+  /** The bone window is already open: the resident has completed access. */
+  preOpened?: boolean;
   name: string;
   label: string;
   difficulty: string;
@@ -113,6 +168,7 @@ const introductoryPockets = [
 ] as const;
 export const CASES: Record<CaseId, ProcedureCase> = {
   lab: {
+    kind: "washout",
     name: "Instrument lab",
     label: "Practice field",
     difficulty: "Practice",
@@ -133,6 +189,7 @@ export const CASES: Record<CaseId, ProcedureCase> = {
     ],
   },
   case01: {
+    kind: "washout",
     name: "Extra-axial collection",
     label: "Case 01",
     difficulty: "Introductory",
@@ -153,6 +210,7 @@ export const CASES: Record<CaseId, ProcedureCase> = {
     ],
   },
   case02: {
+    kind: "washout",
     name: "Focal bleeding control",
     label: "Case 02",
     difficulty: "Intermediate",
@@ -179,6 +237,7 @@ export const CASES: Record<CaseId, ProcedureCase> = {
     ],
   },
   case03: {
+    kind: "washout",
     name: "Loculated collection washout",
     label: "Case 03",
     difficulty: "Intermediate",
@@ -206,6 +265,29 @@ export const CASES: Record<CaseId, ProcedureCase> = {
       { title: "Examine the field", detail: "Choose Examine field after clearing and rinsing.", tool: "irrigation" },
     ],
   },
+  case04: {
+    kind: "aneurysm",
+    preOpened: true,
+    name: "Aneurysm clipping",
+    label: "Case 04",
+    difficulty: "Advanced",
+    duration: "RUPTURE RISK",
+    parSeconds: 300,
+    brief:
+      "The bone is open. Release the two tethers with bipolar, free the neck with gentle suction, then clip across the neck without pinching the artery. If the wall tears, suction to see and clip fast.",
+    pockets: [],
+    suctionRate: 0.3,
+    irrigationRate: 0.24,
+    clarityRequired: 0,
+    bleedingSource: null,
+    initialBleeding: 0,
+    objectives: [
+      { title: "Release the tethers", detail: "Coagulate both marked tethering vessels with bipolar. Stay clear of the dome.", tool: "bipolar" },
+      { title: "Free the neck", detail: "Use gentle suction at the marked spot beside the neck.", tool: "suction" },
+      { title: "Clip the neck", detail: "Rotate with A/D, align across the neck and hold to close. Do not pinch the artery.", tool: "clip" },
+      { title: "Examine the field", detail: "Check that the aneurysm is sealed and bleeding is controlled.", tool: "irrigation" },
+    ],
+  },
 };
 export const TOOLS: Record<
   Tool,
@@ -228,6 +310,12 @@ export const TOOLS: Record<
     action: "IRRIGATING",
     purpose:
       "Rinse the cleared field. Irrigation improves clarity; it does not reverse injury.",
+  },
+  clip: {
+    name: "Aneurysm clip",
+    action: "CLOSING CLIP",
+    purpose:
+      "Rotate with A/D, centre it across the aneurysm neck and hold to close. Misplacement is removed and costs time.",
   },
   bipolar: {
     name: "Bipolar",
@@ -308,6 +396,8 @@ export function createState(
     said: [],
     complicationsTriggered: 0,
     complicationsHandled: 0,
+    aneurysm: procedure.kind === "aneurysm" ? createAneurysm() : null,
+    clipAngle: procedure.kind === "aneurysm" ? ANEURYSM_AXIS + 0.75 : 0,
   };
 }
 /** Anaesthetist remark. A key makes it fire once per attempt. */
@@ -377,7 +467,8 @@ export function inspectionReady(s: GameState) {
     s.sourceControlled &&
     pocketsCleared(s) &&
     s.clarity >= CASES[s.caseId].clarityRequired &&
-    s.bleeding < BLEEDING_CONTROL_THRESHOLD
+    s.bleeding < BLEEDING_CONTROL_THRESHOLD &&
+    (!s.aneurysm || s.aneurysm.phase === "clipped")
   );
 }
 export function cancelInspection(s: GameState) {
@@ -417,15 +508,164 @@ export function chooseTool(s: GameState, tool: Tool) {
   setFeedback(s, TOOLS[tool].name, TOOLS[tool].purpose);
 }
 export function fluidProgress(s: GameState) {
+  if (s.pockets.length === 0) return 1;
   return 1 - s.pockets.reduce((a, p) => a + p.remaining, 0) / s.pockets.length;
 }
 export function score(s: GameState) {
   return gradeAttempt(s, CASES[s.caseId].parSeconds).points;
 }
+const clamp = (n: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, n));
+const near = (a: readonly number[], x: number, y: number, r: number) =>
+  Math.hypot(x - a[0], y - a[1]) < r;
+/** Signed offset of a point from the artery line: [along the artery, toward the dome]. */
+export function neckFrame(a: AneurysmState, x: number, y: number) {
+  const dx = x - a.neck[0],
+    dy = y - a.neck[1],
+    ax = Math.cos(a.axis),
+    ay = Math.sin(a.axis);
+  return { along: dx * ax + dy * ay, side: dx * -ay + dy * ax };
+}
+export function ruptureAneurysm(s: GameState, cause: string) {
+  const a = s.aneurysm;
+  if (!a || a.phase !== "intact") return;
+  a.phase = "ruptured";
+  a.tension = 1;
+  s.bleedPosition = [a.dome[0], a.dome[1], 0];
+  s.bleeding = Math.max(s.bleeding, 0.7);
+  s.sourceControlled = false;
+  s.shock = Math.min(1, s.shock + 0.5);
+  s.complicationsTriggered++;
+  s.action = false;
+  logEvent(s, "rupture", `Aneurysm ruptured: ${cause}`, [a.dome[0], a.dome[1], 0]);
+  setFeedback(
+    s,
+    "The aneurysm has ruptured.",
+    "Suction over the dome to see the neck, then clip it. Bipolar will not seal this.",
+    "danger",
+  );
+  say(s, "Rupture! Pressure is dropping. Get that clip on.", "danger", "rupture");
+}
+function applyClip(s: GameState, a: AneurysmState, c: Contact) {
+  a.attempts++;
+  const [tx, ty] = c.tip;
+  const blind = a.phase === "ruptured" && s.elapsed > a.visibleUntil;
+  let { along, side } = neckFrame(a, tx, ty);
+  // A neck hidden by blood cannot be judged: the clip lands off-line.
+  const half = Math.PI / 2;
+  let angErr = Math.abs(
+    ((((s.clipAngle - a.axis + half) % Math.PI) + Math.PI) % Math.PI) - half,
+  );
+  if (blind) {
+    angErr += 0.5;
+    side -= 0.06;
+  }
+  const dist = Math.hypot(along, side - 0.05);
+  if (a.dissection < 0.9 || a.bridges.some((b) => !b.done)) {
+    a.tension = Math.min(0.97, a.tension + 0.2);
+    logEvent(s, "clip", "Clip slipped: the neck was not yet free");
+    setFeedback(s, "Clip slipped.", "Tissue still tethers the neck. Release the tethers and free the neck first.", "warning");
+    return;
+  }
+  if (side < 0.015 && Math.abs(along) < 0.12) {
+    s.injury = Math.min(1, s.injury + 0.22);
+    a.tension = Math.min(0.97, a.tension + 0.1);
+    logEvent(s, "injury", "Clip narrowed the parent artery and was removed", [tx, ty, 0]);
+    setFeedback(s, "Parent artery pinched.", "The clip was removed. Sit it on the dome side of the artery.", "danger");
+    say(s, "Flow dropped through the parent vessel. Reposition.", "warning");
+    return;
+  }
+  if (dist > 0.085 || angErr > 0.4) {
+    a.tension = Math.min(0.97, a.tension + 0.12);
+    logEvent(s, "clip", blind ? "Clip placed blind and missed the neck" : "Clip missed the neck and was removed");
+    setFeedback(s, "The neck still fills.", blind ? "Suction first so you can see the neck." : "Centre the clip across the neck and rotate with A/D.", "warning");
+    return;
+  }
+  const wasRuptured = a.phase === "ruptured";
+  a.phase = "clipped";
+  a.tension = 0;
+  s.bleeding = 0;
+  s.bleedPosition = null;
+  s.sourceControlled = true;
+  if (wasRuptured) s.complicationsHandled++;
+  logEvent(s, "clip", wasRuptured ? "Clip placed across the ruptured neck" : "Clip placed across the neck");
+  setFeedback(s, "Clip is on.", "The dome is collapsing. Release the tool and examine the field.", "good");
+  say(s, wasRuptured ? "Bleeding has stopped. Nice recovery." : "Aneurysm is secured.", "good");
+}
+function stepAneurysm(s: GameState, c: Contact, dt: number) {
+  const a = s.aneurysm;
+  if (!a || a.phase === "clipped") return;
+  const [tx, ty] = c.tip,
+    active = s.action && c.inField,
+    speed = c.speed ?? 0;
+  if (a.phase === "intact") {
+    let rise = 0;
+    if (near(a.dome, tx, ty, 0.17) && c.clearance < 0.075 && c.clearance > -0.2) rise += 0.55;
+    if (active && s.tool === "bipolar" && near(a.dome, tx, ty, 0.12)) rise += 0.95;
+    if (active && s.tool === "suction" && near(a.dome, tx, ty, 0.14) && c.clearance < 0.15) rise += 0.35;
+    if (speed > 0.9 && near(a.dome, tx, ty, 0.32) && c.clearance < 0.2)
+      rise += 0.4 * Math.min(2.5, speed);
+    a.tension = clamp(a.tension + (rise > 0 ? rise * dt * hazard(s) : -dt * 0.14));
+    if (rise > 0 && a.tension > 0.55)
+      say(s, "The dome wall is getting very thin. Back off.", "warning", "thin");
+    if (a.tension >= 1) {
+      ruptureAneurysm(
+        s,
+        s.tool === "bipolar" ? "heat reached the dome wall" : "the dome wall was stressed",
+      );
+      return;
+    }
+  } else if (active && s.tool === "suction" && near(a.dome, tx, ty, 0.24)) {
+    a.visibleUntil = s.elapsed + 5;
+  }
+  if (active && s.tool === "bipolar" && c.clearance > 0 && c.clearance < 0.2)
+    for (const b of a.bridges)
+      if (!b.done && near([b.x, b.y], tx, ty, 0.075)) {
+        b.progress = Math.min(1, b.progress + dt / 1.2);
+        if (b.progress >= 1) {
+          b.done = true;
+          s.action = false;
+          logEvent(s, "stage", "Tethering vessel released", [b.x, b.y, 0]);
+          setFeedback(
+            s,
+            a.bridges.every((x) => x.done) ? "Both tethers released." : "One tether released.",
+            a.bridges.every((x) => x.done)
+              ? "Pick up suction and free the neck at the marked spot."
+              : "Find the other marked tether.",
+            "good",
+          );
+        }
+      }
+  if (
+    active &&
+    s.tool === "suction" &&
+    a.bridges.every((b) => b.done) &&
+    a.dissection < 1 &&
+    near(a.work, tx, ty, 0.1) &&
+    c.clearance > 0.02 &&
+    c.clearance < 0.22
+  ) {
+    a.dissection = Math.min(1, a.dissection + dt * 0.12);
+    if (a.dissection >= 0.9 && !s.said.includes("neck-free")) {
+      s.said.push("neck-free");
+      logEvent(s, "stage", "Aneurysm neck freed", [a.neck[0], a.neck[1], 0]);
+      setFeedback(s, "The neck is free.", "Pick up the aneurysm clip. Rotate with A/D and hold to close.", "good");
+    }
+  }
+  if (s.tool === "clip") {
+    if (active) a.clipProgress = Math.min(1, a.clipProgress + dt / 0.7);
+    else a.clipProgress = Math.max(0, a.clipProgress - dt * 2);
+    if (a.clipProgress >= 1) {
+      a.clipProgress = 0;
+      s.action = false;
+      applyClip(s, a, c);
+    }
+  } else a.clipProgress = 0;
+}
 /** Blood loss, monitor values, remarks and collapse. Returns true if the patient failed. */
 function stepPhysiology(s: GameState, dt: number): boolean {
   const bleeding = s.bleeding > 0.02;
-  if (bleeding) s.bloodLoss += dt * s.bleeding * 5;
+  if (bleeding)
+    s.bloodLoss += dt * s.bleeding * (s.aneurysm?.phase === "ruptured" ? 9 : 5);
   else s.shock = Math.max(0, s.shock - dt * 0.02);
   s.vitals = stepVitals(
     s.vitals,
@@ -483,14 +723,25 @@ export function tick(s: GameState, c: Contact, dt: number) {
     }
   }
   if (stepPhysiology(s, dt)) return;
+  stepAneurysm(s, c, dt);
+  if (s.status !== "running") return;
   const active = s.action && c.inField;
   if (active) s.activeTime += dt;
   const p = c.pocket >= 0 ? s.pockets[c.pocket] : null;
   const working = c.clearance <= 0.24 && c.clearance >= 0.012;
-  const nearSource = s.bleedPosition !== null && s.bleeding > 0 && c.bleedDistance < 0.2;
+  const nearSource =
+    s.bleedPosition !== null &&
+    s.bleeding > 0 &&
+    c.bleedDistance < 0.2 &&
+    s.aneurysm?.phase !== "ruptured";
   const physicalContact = (c.inField && c.clearance < -0.035) || c.shaftContact;
+  const nearBridge =
+    s.aneurysm?.bridges.some((b) => !b.done && near([b.x, b.y], c.tip[0], c.tip[1], 0.1)) ?? false;
+  // Heat on the dome wall is judged by the aneurysm's own tension, not as cortical injury.
+  const nearDome =
+    s.aneurysm?.phase === "intact" && near(s.aneurysm.dome, c.tip[0], c.tip[1], 0.15);
   const thermalInjury =
-    active && s.tool === "bipolar" && !nearSource && c.clearance < 0.18;
+    active && s.tool === "bipolar" && !nearSource && !nearBridge && !nearDome && c.clearance < 0.18;
   if (physicalContact || thermalInjury) {
     cancelInspection(s);
     const rate = c.vessel ? 2.7 : thermalInjury ? 1.5 : 1.15;

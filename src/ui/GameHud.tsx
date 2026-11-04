@@ -44,12 +44,26 @@ export function GameHud({
     collectionClear = cleared === view.pockets.length,
     rinsed = view.clarity >= caseInfo.clarityRequired,
     bleedingControlled = view.sourceControlled && view.bleeding < 0.025,
-    needsBipolar = !bleedingControlled,
+    needsBipolar = !view.aneurysm && !bleedingControlled,
     canExamine = !opening && inspectionReady(view),
     examining = view.inspectionActive,
     showControlStep = caseInfo.initialBleeding > 0 || needsBipolar;
-  const step = opening ? 0 : !collectionClear || needsBipolar ? 1 : !rinsed ? 2 : 3;
-  const required: Tool | null = opening
+  const an = view.aneurysm;
+  const anStage = !an
+    ? 0
+    : an.bridges.some((b) => !b.done)
+      ? 0
+      : an.dissection < 0.9
+        ? 1
+        : an.phase !== "clipped"
+          ? 2
+          : 3;
+  const step = an ? anStage : opening ? 0 : !collectionClear || needsBipolar ? 1 : !rinsed ? 2 : 3;
+  const required: Tool | null = an
+    ? opening
+      ? null
+      : ([ "bipolar", "suction", "clip", null ] as const)[anStage]
+    : opening
     ? "drill"
     : needsBipolar
       ? "bipolar"
@@ -57,8 +71,17 @@ export function GameHud({
         ? "suction"
         : step === 2 ? "irrigation" : null;
   const current = view.heldTool ? TOOLS[view.heldTool].name : "";
+  const anPercent = an
+    ? anStage === 0
+      ? an.bridges.reduce((s, b) => s + b.progress, 0) / an.bridges.length
+      : anStage === 1
+        ? Math.min(1, an.dissection / 0.9)
+        : anStage === 2
+          ? an.clipProgress
+          : Math.min(1, view.inspectionTime / INSPECTION_SECONDS)
+    : 0;
   const percent = Math.round(
-    (opening
+    an ? anPercent * 100 : (opening
       ? view.cutProgress
       : needsBipolar
         ? Math.max(0, 1 - view.bleeding / Math.max(caseInfo.initialBleeding, 0.15))
@@ -68,7 +91,14 @@ export function GameHud({
           ? Math.min(1, view.clarity / caseInfo.clarityRequired)
           : Math.min(1, view.inspectionTime / INSPECTION_SECONDS)) * 100,
   );
-  const titles = [
+  const anTitles = ["Release the tethers", "Free the neck", "Clip the neck", examining ? "Examining the field…" : "Examine the field"];
+  const anDetails = [
+    "Hold bipolar on each marked tether for a moment. Stay well clear of the dome.",
+    "Hold gentle suction at the marked spot beside the neck. Slow hands keep the wall calm.",
+    "Rotate the clip with A / D until it lies along the artery, centre it on the neck and hold to close.",
+    examining ? "Keep instruments idle while the final check completes." : "The aneurysm is secured. Click Examine field to finish.",
+  ];
+  const titles = an ? anTitles : [
     view.accessPhase === "lifting"
       ? "Opening the window…"
       : cutReady
@@ -78,7 +108,7 @@ export function GameHud({
     "Rinse the field",
     examining ? "Examining the field…" : "Examine the field",
   ];
-  const details = [
+  const details = an ? anDetails : [
     cutReady
       ? "The cut is complete. Lift the freed flap to continue."
       : "Hold the burr along the dotted path. Move slowly to cut through.",
@@ -122,7 +152,13 @@ export function GameHud({
           : needsBipolar && !opening
             ? "Hold bipolar on the marked source until bleeding stops."
             : details[step];
-  const steps = [
+  const steps = an
+    ? ["Tethers", "Neck", "Clip", "Examine"].map((label, i) => ({
+        label,
+        done: i < anStage || (i === 3 && view.status === "success"),
+        active: i === anStage,
+      }))
+    : [
     { label: "Open", done: !opening, active: opening },
     ...(showControlStep
       ? [{ label: "Control", done: bleedingControlled, active: !opening && needsBipolar }]
@@ -153,7 +189,9 @@ export function GameHud({
             </ol>
             <div className="task-progress">
               <span>
-                {opening
+                {an
+                  ? ["Tethers released", "Neck freed", "Clip closing", examining ? "Examination in progress" : "Examination not started"][anStage]
+                  : opening
                   ? "Bone cutting path"
                   : needsBipolar
                     ? "Bleeding controlled"
@@ -168,6 +206,14 @@ export function GameHud({
                 <b style={{ width: `${percent}%` }} />
               </i>
             </div>
+            {an && an.phase !== "clipped" && (
+              <div className={`tension ${an.phase === "ruptured" ? "ruptured" : an.tension > 0.6 ? "high" : ""}`}>
+                <span>{an.phase === "ruptured" ? "RUPTURED · CLIP THE NECK" : "DOME WALL TENSION"}</span>
+                <i>
+                  <b style={{ width: `${Math.round(an.tension * 100)}%` }} />
+                </i>
+              </div>
+            )}
           </>
         )}
       </section>
@@ -304,10 +350,10 @@ export function GameHud({
                 className="bleed-marker"
                 style={{ left: view.bleedTarget.x, top: view.bleedTarget.y }}
                 role="img"
-                aria-label="Bleeding source. Use bipolar on the marked point."
+                aria-label={an ? "Ruptured aneurysm. Clip the neck." : "Bleeding source. Use bipolar on the marked point."}
               >
                 <i />
-                <span>Bleeding source<small>Use bipolar here</small></span>
+                <span>{an ? "Ruptured dome" : "Bleeding source"}<small>{an ? "Suction, then clip the neck" : "Use bipolar here"}</small></span>
               </div>
             )}
           </div>
@@ -321,11 +367,17 @@ export function GameHud({
                 <span>{examining ? "Checking…" : canExamine ? "Ready" : "Preparation"}</span>
               </div>
               <ul className="examine-checklist">
-                {[
+                {(an
+                  ? [
+                      { done: an.bridges.every((b) => b.done) && an.dissection >= 0.9, label: "Neck freed" },
+                      { done: an.phase === "clipped", label: "Clip across the neck" },
+                      { done: bleedingControlled, label: bleedingControlled ? "No active bleeding" : "Stop the bleeding with the clip" },
+                    ]
+                  : [
                   { done: collectionClear, label: `${cleared}/${view.pockets.length} pockets cleared` },
                   { done: rinsed, label: `Rinsed · ${Math.round(view.clarity * 100)}/${Math.round(caseInfo.clarityRequired * 100)}% clarity` },
                   { done: bleedingControlled, label: bleedingControlled ? "Bleeding controlled" : "Control bleeding with bipolar" },
-                ].map(({ done, label }) => (
+                ]).map(({ done, label }) => (
                   <li key={label} className={done ? "complete" : ""}>
                     <span>{done ? <Icon name="check" size={12} /> : <i />}</span>
                     {label}

@@ -261,6 +261,14 @@ export class BoneWindow {
     this.path.visible = false;
     return true;
   }
+  /** Open the window at once: used when the resident has already completed access. */
+  openInstant() {
+    for (const p of this.cut.path) this.cut.carve(p.x, p.y, 1);
+    this.rebuild();
+    this.lift();
+    this.liftTime = 5;
+    this.update(0);
+  }
   update(dt: number) {
     if (this.geometryDirty) {
       this.rebuild();
