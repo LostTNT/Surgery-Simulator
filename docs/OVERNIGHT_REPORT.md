@@ -70,6 +70,22 @@ Every case was the same loop: carve bone, hold the mouse over four blobs, rinse 
 4. Have one person try **Chief** on Case 01.
 5. Note anything that felt unfair, confusing or slow. Those are the next fixes.
 
+## Deployment status: **not published yet, one step left for you**
+
+- `main` **was** fast-forwarded to the showcase (`bf71b70`; previous `d4cd7d4`). Source is final.
+- Publishing the website (`gh-pages`) was **blocked by the permission system** as a production deploy, so I did not do it. The live site still shows the old game.
+- To publish, run this on your machine (about 1 minute):
+
+```sh
+git checkout main && git pull
+VITE_BASE_PATH=/Surgery-Simulator/ npm ci && VITE_BASE_PATH=/Surgery-Simulator/ npm run build
+git worktree add /tmp/ghp gh-pages && cd /tmp/ghp
+git rm -rq . && cp -r <repo>/dist/. . && touch .nojekyll
+git add -A && git commit -m "Publish showcase build" && git push origin gh-pages
+```
+
+Or allow that action for me and tell me to run it. The production build itself was tested at the `/Surgery-Simulator/` subpath (Lab case, 0 browser errors).
+
 ## Rollback
 
 ```sh
