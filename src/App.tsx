@@ -235,9 +235,11 @@ export default function App() {
       /* storage unavailable */
     }
     if (!view.sound && stored !== "off") engine.current?.toggleSound();
+    engine.current?.beginArrival(PATIENTS[selected].arrival.length * 3.2 + 3);
     setOverlay("arrival");
   }
   function finishArrival() {
+    engine.current?.endArrival();
     setOverlay("none");
     engine.current?.startSurgery();
   }
@@ -271,7 +273,7 @@ export default function App() {
               ? "A controlled finish."
               : paused
                 ? "Take your time."
-                : "Your operating room.";
+                : "SUTURE";
   return (
     <main
       className={`game ${menuOpen ? "has-menu" : "is-playing"} ${view.location === "room" ? "in-room" : ""} ${overlay === "cases" ? "workstation-open" : ""} ${overlay === "briefing" ? "briefing-open" : ""} ${jolt ? "jolt" : ""} ${died ? "is-dead" : ""}`}
@@ -393,7 +395,9 @@ export default function App() {
               {returnToWorkstation.current ? "Back to workstation" : "Back"}
             </button>
           )}
-          {overlay !== "cases" && overlay !== "briefing" && <h1>{title}</h1>}
+          {overlay !== "cases" && overlay !== "briefing" && (
+            <h1 className={ready && overlay === "none" ? "title-big" : ""}>{title}</h1>
+          )}
           {overlay === "briefing" && (
             <Briefing
               caseId={selected}
@@ -404,62 +408,24 @@ export default function App() {
             />
           )}
           {overlay === "none" && ready && (
-            <>
+            <div className="title-menu">
+              <p className="title-kicker">NEUROSURGERY · NIGHT SHIFT</p>
               <p className="menu-description">
-                Choose a procedure at the case workstation, pick up your
-                instruments, and step up to the microscope.
+                You are the only surgeon awake. Six patients are waiting.
               </p>
-              <ol className="brief-objectives">
-                <li>
-                  <span>01</span>Explore your operating room
-                </li>
-                <li>
-                  <span>02</span>Choose from six procedures and read the patient briefing
-                </li>
-                <li>
-                  <span>03</span>Follow one clear task at a time
-                </li>
-              </ol>
-              <label className="toggle-row">
-                <input
-                  type="checkbox"
-                  checked={view.depthAssist}
-                  onChange={(e) =>
-                    engine.current?.setDepthAssist(e.target.checked)
-                  }
-                />
-                <span className="toggle-switch" />
-                <span>
-                  <strong>Assisted depth</strong>
-                  <small>Follows the surface. Lifts when you release.</small>
-                </span>
-              </label>
-              <button
-                className="primary-button"
-                onClick={() => open("cases")}
-              >
-                Choose a case
-                <Icon name="arrow" />
+              <button className="menu-row primary" onClick={() => open("cases")}>
+                Begin shift
+                <Icon name="arrow" size={18} />
               </button>
-              <button
-                className="secondary-button"
-                onClick={() => engine.current?.startRoom()}
-              >
-                Enter operating room
-                <Icon name="arrow" size={17} />
+              <button className="menu-row" onClick={() => engine.current?.startRoom()}>
+                Walk the operating room
+                <Icon name="arrow" size={18} />
               </button>
-              <button
-                className="secondary-button"
-                onClick={() => engine.current?.startSurgery()}
-              >
-                Start surgery
-                <Icon name="arrow" size={17} />
+              <button className="menu-row" onClick={() => open("guide")}>
+                How to play
+                <Icon name="arrow" size={18} />
               </button>
-              <div className="menu-links">
-                <button onClick={() => open("cases")}>Case files</button>
-                <button onClick={() => open("guide")}>How to play</button>
-              </div>
-            </>
+            </div>
           )}
           {overlay === "none" && paused && (
             <>

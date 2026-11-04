@@ -129,6 +129,48 @@ export class Engine {
   accessPhase: "bone" | "lifting" | "surgery" = "bone";
   trayView = false;
   /** A scrub-nurse handoff in progress: the old tool drops out, the new one rises in. */
+  lamp: THREE.SpotLight | null = null;
+  /** A press made while the instrument is still being handed over starts working once it arrives. */
+  pendingPress = false;
+  lastClient = { x: 0, y: 0 };
+  /** The arrival fly-in: the camera glides from the doorway to your place at the head of the table. */
+  arrival: { t: number; dur: number; start: number } | null = null;
+  beginArrival(seconds: number) {
+    this.location = "surgery";
+    this.heldTool = null;
+    this.trayView = false;
+    this.arrival = { t: 0, dur: Math.max(4, seconds), start: performance.now() };
+    this.state.status = "ready";
+    this.dirty = true;
+  }
+  endArrival() {
+    this.arrival = null;
+    if (this.lamp) this.lamp.intensity = 230;
+  }
+  stepArrival() {
+    const a = this.arrival;
+    if (!a) return;
+    // Wall-clock time, so the camera move stays in step with the subtitles on slow machines.
+    a.t = (performance.now() - a.start) / 1000;
+    const u = Math.min(1, a.t / a.dur),
+      e = u * u * (3 - 2 * u);
+    const from = new THREE.Vector3(-7.4, -9.2, 3.4),
+      to = new THREE.Vector3(0, -2.3, 5.8);
+    this.fp.pos.lerpVectors(from, to, e);
+    const head = new THREE.Vector3(0, 0, -0.4),
+      toward = head.clone().sub(this.fp.pos).normalize(),
+      home = new THREE.Vector3(0, 2.3, -5.9).normalize(),
+      dir = toward.lerp(home, Math.pow(e, 2.2)).normalize();
+    this.fp.yaw = Math.atan2(dir.y, dir.x);
+    this.fp.pitch = Math.asin(dir.z);
+    // The operating lamp stutters on like a tired fluorescent, then holds.
+    if (this.lamp) {
+      const s = a.t;
+      const flick = s < 0.7 ? 0 : s < 1.6 ? (Math.sin(s * 47) > 0.2 ? 1 : 0.08) : s < 2.4 ? (Math.sin(s * 23) > -0.5 ? 1 : 0.3) : 1;
+      this.lamp.intensity = 230 * flick;
+    }
+    this.updateCamera();
+  }
   /** First-person rig: where the surgeon's eyes are in the operating-room world. */
   fp = { pos: new THREE.Vector3(0, -2.3, 5.8), yaw: Math.PI / 2, pitch: -1.2 };
   fpKeys = new Set<string>();
@@ -220,6 +262,7 @@ export class Engine {
     light.shadow.radius = 3;
     light.shadow.bias = -0.0005;
     this.scene.add(light, light.target);
+    this.lamp = light;
     const fill = new THREE.DirectionalLight(0x9fc4dc, 0.12);
     fill.position.set(3, 2, 4);
     this.scene.add(fill);
@@ -978,7 +1021,12 @@ export class Engine {
           this.lockPointer();
           return;
         }
-        if (!this.heldTool || this.trayPan > 0.001 || this.swap) return;
+        this.lastClient = { x: e.clientX, y: e.clientY };
+        if (this.swap) {
+          this.pendingPress = true;
+          return;
+        }
+        if (!this.heldTool || this.trayPan > 0.001) return;
         cancelInspection(this.state);
         this.state.action = true;
         if (this.locked) this.aimCentre();
@@ -1015,6 +1063,7 @@ export class Engine {
       this.emit();
     }) as EventListener);
     listen(window, "pointerup", (() => {
+      this.pendingPress = false;
       this.state.action = false;
     }) as EventListener);
     listen(canvas, "lostpointercapture", (() => {
@@ -1243,6 +1292,10 @@ export class Engine {
     const delta = Math.min(frameDelta, 0.1);
     this.last = now;
     if (this.loaded) {
+      if (this.arrival) {
+        this.stepArrival();
+        this.dirty = true;
+      }
       if (this.state.status === "running" && this.location === "room") {
         this.room?.update(delta, this.heldTool, now / 1000, this.state.tool);
         this.dirty = true;
@@ -1377,7 +1430,15 @@ export class Engine {
             logEvent(this.state, "pickup", `Handed ${s.to}`);
           }
           swapOffset = 1 - ease(Math.min(1, (s.t - 0.18) / 0.27));
-          if (s.t >= 0.45) this.swap = null;
+          if (s.t >= 0.45) {
+            this.swap = null;
+            if (this.pendingPress && this.heldTool && this.state.status === "running") {
+              this.pendingPress = false;
+              this.state.action = true;
+              if (this.locked) this.aimCentre();
+              else this.aimAt(this.lastClient.x, this.lastClient.y);
+            }
+          }
         }
         this.dirty = true;
       }

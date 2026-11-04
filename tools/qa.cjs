@@ -106,7 +106,7 @@ const operationTimeout = Number(process.env.SUTURE_OPERATION_TIMEOUT || "120000"
     console.log(`Testing ${caseId}: ${selectedCase.name} at ${target} (DPR ${deviceScaleFactor})`);
     await page.goto(target, { waitUntil: "domcontentloaded", timeout: 90000 });
     await page
-      .getByRole("button", { name: "Start surgery", exact: true })
+      .getByRole("button", { name: "Begin shift", exact: true })
       .waitFor({ timeout: 90000 });
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("combobox").selectOption("balanced");
