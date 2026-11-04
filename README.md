@@ -22,7 +22,7 @@ Most surgery games are one loop with different skins. Suture's cases play differ
 | **05 · Tumour resection** | Seal feeding vessels, then debulk to at least 85%. | A green motor-cortex zone. Touch it and the patient's hand pays. Cut past an unsealed feeder and it bleeds. |
 | **06 · Ventricular drain** | Aim a catheter on a CT slice at a swollen ventricle. | Pressure is climbing. The obvious straight line clips a vessel, so you have to angle around it. |
 
-Every case has a **patient briefing with a scan**, three **operating standards** (Resident, Attending, Chief), a **live monitor** (HR, BP, SpO₂, blood loss) driven by what you do, **anaesthetist callouts**, and a **graded debrief** (S to F) covering tissue protection, blood loss, stability, complications handled, and pace or extent of resection. The debrief ends with surgeon's notes that explain what went wrong.
+Each case opens with a short, quiet **arrival scene** in an eerily empty hospital at night, then plays with sound on by default: a failing fluorescent hum, a ventilator, the monitor, wet suction, and spoken anaesthetist callouts. Every case has a **patient briefing with a scan**, three **operating standards** (Resident, Attending, Chief), a **live monitor** (HR, BP, SpO₂, blood loss) driven by what you do, **anaesthetist callouts**, and a **graded debrief** (S to F) covering tissue protection, blood loss, stability, complications handled, and pace or extent of resection. The debrief ends with a one-line human outcome (who woke up, who did not) and surgeon's notes that explain what went wrong. Blood spurts with the heartbeat and pools on the field, injuries leave bruises, vision fades as pressure falls, and a long operation slowly wears the patient down.
 
 ## Controls
 

@@ -39,9 +39,28 @@ Every case was the same loop: carve bone, hold the mouse over four blobs, rinse 
 - **Consequences**: death is blunt. The screen goes dark red and says "The patient did not survive." Bleeding and pressure are real fail states, not just score penalties. Resident softens all of it; Chief is faster and unforgiving.
 - Bloody and realistic by design, in line with the project brief. It is stylised 3D, not photographic.
 
+## Round 2 (after an Opus design review)
+
+An independent Opus review read the code and screenshots and found real problems. Fixed:
+
+- Flatline tone played after every failure and never stopped. It now plays only on death, then fades.
+- A blind clip at the correct spot was wrongly treated as pinching the artery.
+- Injury reaching 100% only ended the operation in one code path. It now fails everywhere.
+- Grading could be gamed: a fast death got full pace points, and complications you caused were free. A failed run now scores nothing for pace or complications, caused complications cost points, and Resident cannot earn the top grades.
+- Warnings were hidden behind "Ready when you are" whenever the mouse button was up. Danger and warnings now show immediately.
+- Sound was off by default. It now starts when you scrub in (unless you turned it off before).
+- New players started on the practice lab. The chooser now opens on the aneurysm.
+- The drain was solved by looking (a full ruler to the target) and pressure was slow. The ruler is Resident-only and pressure rises over twice as fast.
+- Nothing threatened careful players. A long operation now wears the patient down at Attending and Chief, and untreated bleeding is deadlier.
+- Added a hand tremor that grows with fatigue and a racing pulse, voiced anaesthetist callouts, a falling pulse-oximeter pitch, and blood for the aneurysm rupture.
+- Added the personal outcome line to the debrief (for example "Time of death 03:12. Her mother is in the waiting room.").
+- Added the arrival scene and a flickering ward light.
+
+Not done from the review: blood hiding the whole field until suctioned, a brain that swells through the bone window, checkpoint edge cases, and number-key tool picking.
+
 ## Verification
 
-- **Unit tests: 71 passing** (`npm test`). New rules covered: vitals and collapse, grading, rupture, tether release, neck dissection, clip success/miss/pinch/blind, tumour feeders and motor zone, drain geometry and pressure, difficulty-gated twists.
+- **Unit tests: 79 passing** (`npm test`). New rules covered: vitals and collapse, grading, rupture, tether release, neck dissection, clip success/miss/pinch/blind, tumour feeders and motor zone, drain geometry and pressure, difficulty-gated twists.
 - **Type check and production build** pass.
 - **Real-browser checks** (Playwright, real mouse and keyboard, software rendering): briefing, chooser, monitor, callout, debrief, aneurysm field, tumour field, drain aim and insertion, phone-width briefing and drain. Screenshots in `docs/screenshots/`.
 - **Lab, full procedure on the production build under the real `/Surgery-Simulator/` subpath** (`tools/qa-hosting.cjs`): bone carved with the real mouse, flap lifted, tools handed off at the tray, pockets cleared, rinse, explicit examination, result screen. **0 browser errors.** The script's last line (reading the old result element) then failed because the result screen was redesigned; I fixed that assertion afterwards but did not spend another 20 minutes re-running it.
