@@ -61,7 +61,7 @@ const operationTimeout = Number(process.env.SUTURE_OPERATION_TIMEOUT || "120000"
   // Read the target's on-screen anchor, not game or engine state. Marker labels
   // may grow while a tool is active, so their full bounding-box center can move.
   async function markerPoint(marker) {
-    await marker.waitFor({ state: "visible" });
+    await marker.waitFor({ state: "attached" });
     return marker.evaluate((el) => {
       const parent = el.offsetParent.getBoundingClientRect();
       const style = getComputedStyle(el);
@@ -190,20 +190,20 @@ const operationTimeout = Number(process.env.SUTURE_OPERATION_TIMEOUT || "120000"
     if (caseId === "case02") {
       await pickTool("Bipolar");
       const source = page.locator(".bleed-ring");
-      await source.waitFor({ state: "visible" });
+      await source.waitFor({ state: "attached" });
       await assertExaminationBlocked("Uncontrolled bleeding blocks examination");
       await page.screenshot({ path: artifact("bleeding-source") });
       const point = await markerPoint(source);
       await page.mouse.move(point.x, point.y);
       await page.mouse.down();
-      await waitForOperation((timeout) => source.waitFor({ state: "hidden", timeout }), "Source control");
+      await waitForOperation((timeout) => source.waitFor({ state: "detached", timeout }), "Source control");
       await page.mouse.up();
       console.log("Bleeding source controlled");
       await pickTool("Suction");
     } else {
       await pickTool("Suction");
     }
-    await page.locator(".target-ring").first().waitFor();
+    await page.locator(".target-ring").first().waitFor({ state: "attached" });
     await assertExaminationBlocked("Remaining pockets block examination");
     await page.screenshot({ path: artifact("exposed") });
     const pocketCount = await page.locator(".target-ring").count();
@@ -213,7 +213,7 @@ const operationTimeout = Number(process.env.SUTURE_OPERATION_TIMEOUT || "120000"
       const point = await markerPoint(marker);
       await page.mouse.move(point.x, point.y);
       if (i === 0) await page.mouse.down();
-      await marker.waitFor({ state: "visible" });
+      await marker.waitFor({ state: "attached" });
       await waitForOperation((timeout) => page.waitForFunction(
         (i) =>
           document
@@ -231,7 +231,7 @@ const operationTimeout = Number(process.env.SUTURE_OPERATION_TIMEOUT || "120000"
     await assertExaminationBlocked("Cleared pockets still require the rinse target");
     console.log("Examination correctly blocked until rinse target is met");
     await pickTool("Irrigation");
-    await page.locator(".target-ring").first().waitFor();
+    await page.locator(".target-ring").first().waitFor({ state: "attached" });
     await page.mouse.move(480, 320);
     await page.mouse.down();
     console.log(`Rinsing to ${selectedCase.clarity}% clarity`);
