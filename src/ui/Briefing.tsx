@@ -87,6 +87,9 @@ export function Briefing({
         Scrub in
         <Icon name="arrow" />
       </button>
+      <p className="briefing-disclaimer">
+        Fictional patient, simplified game. Not medical training or advice.
+      </p>
     </div>
   );
 }
