@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
+import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 import { MeshBVH, acceleratedRaycast } from "three-mesh-bvh";
 import { buildField, type FieldObjects } from "./scene";
 import { SurgicalAudio } from "./audio";
@@ -435,7 +435,7 @@ export class Engine {
       if (this.disposed) return;
       try {
         // A real operating-room HDRI (Poly Haven, CC0) gives wet tissue and steel true reflections.
-        const hdr = await new RGBELoader().loadAsync(`${assetBase}env/surgery_1k.hdr`);
+        const hdr = await new HDRLoader().loadAsync(`${assetBase}env/surgery_1k.hdr`);
         hdr.mapping = THREE.EquirectangularReflectionMapping;
         const env = this.pmrem.fromEquirectangular(hdr);
         this.scene.environment = env.texture;

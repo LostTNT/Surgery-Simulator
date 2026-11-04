@@ -140,14 +140,14 @@ export function buildField(
 ): FieldObjects {
   drape.colorSpace = THREE.SRGBColorSpace;
   drape.wrapS = drape.wrapT = THREE.RepeatWrapping;
-  drape.repeat.set(16, 16);
+  drape.repeat.set(34, 34);
   drape.anisotropy = 8;
   const cloth = new THREE.MeshStandardMaterial({
     map: drape,
     bumpMap: drape,
-    bumpScale: 0.016,
-    roughness: 0.98,
-    color: 0x3b7d8c,
+    bumpScale: 0.05,
+    roughness: 0.9,
+    color: 0x2f7468,
     side: THREE.DoubleSide,
   });
   mesh(ringGeometry(2.3, 8, 0.4, true), cloth, scene);
