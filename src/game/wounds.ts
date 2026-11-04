@@ -116,7 +116,7 @@ export function buildWounds(
       const flowing = bp !== null && state.bleeding >= 0.05 && state.status === "running";
       if (bp) lastBleed = [bp[0], bp[1]];
       const beat = Math.max(0, Math.sin((time * Math.PI * 2 * state.vitals.hr) / 60));
-      spurt.visible = Boolean(flowing && bp) && !state.aneurysm;
+      spurt.visible = Boolean(flowing && bp);
       if (spurt.visible && bp) {
         const strength = 0.35 + state.bleeding * 0.9;
         const base = surface(bp[0], bp[1]) + 0.03;
@@ -132,7 +132,7 @@ export function buildWounds(
         spurtGeo.attributes.position.needsUpdate = true;
       }
       // The pool stays after the bleeding is controlled: it is blood already lost.
-      const showPool = state.bloodLoss > 20 && lastBleed !== null && !state.aneurysm;
+      const showPool = state.bloodLoss > 20 && lastBleed !== null;
       pool.visible = showPool;
       if (showPool && lastBleed) {
         const radius = 0.12 + Math.min(1, state.bloodLoss / 600) * 0.5;

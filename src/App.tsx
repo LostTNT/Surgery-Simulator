@@ -69,7 +69,7 @@ export default function App() {
   const [view, setView] = useState<Snapshot>(initial),
     [overlay, setOverlay] = useState<Overlay>("none"),
     [progress, setProgress] = useState(savedProgress),
-    [selected, setSelected] = useState<CaseId>("lab"),
+    [selected, setSelected] = useState<CaseId>("case04"),
     [difficulty, setDifficulty] = useState<Difficulty>("attending");
   const playing = view.status === "running",
     ready = view.status === "ready",
@@ -98,6 +98,24 @@ export default function App() {
     const id = setTimeout(() => setJolt(false), 480);
     return () => clearTimeout(id);
   }, [joltKey]);
+  const spoken = useRef(0);
+  useEffect(() => {
+    const c = view.callout;
+    if (!c || !view.sound || !live || c.id === spoken.current) return;
+    spoken.current = c.id;
+    try {
+      const synth = window.speechSynthesis;
+      if (!synth) return;
+      synth.cancel();
+      const u = new SpeechSynthesisUtterance(c.text);
+      u.rate = c.kind === "danger" ? 1.08 : 0.92;
+      u.pitch = 0.75;
+      u.volume = 0.55;
+      synth.speak(u);
+    } catch {
+      /* speech is optional */
+    }
+  }, [view.callout?.id, view.sound, live]);
   const failureDetail = view.events.filter((e) => e.type === "failure").at(-1)?.detail ?? "";
   const died = failed && /pressure collapsed|blood was lost|herniat|bleeding source/i.test(failureDetail);
   function close() {
@@ -122,7 +140,8 @@ export default function App() {
     if (overlay === "cases" && (which === "guide" || which === "settings"))
       returnToWorkstation.current = true;
     if (which === "cases") {
-      setSelected(view.caseId);
+      // Start new players on a high-stakes case, not the practice field.
+      setSelected(view.caseId === "lab" && !view.procedureStarted ? selected : view.caseId);
       returnToWorkstation.current = false;
     }
     engine.current?.pause();
@@ -628,6 +647,7 @@ export default function App() {
                 <input
                   type="checkbox"
                   checked={view.guided}
+                  disabled={view.difficulty === "chief"}
                   onChange={(e) => engine.current?.setGuided(e.target.checked)}
                 />
               </label>

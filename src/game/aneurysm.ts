@@ -179,7 +179,7 @@ export function buildAneurysm(scene: THREE.Scene, surface: Surface): AneurysmObj
       pool.visible = a.phase === "ruptured";
       if (pool.visible) {
         pool.position.set(a.dome[0], a.dome[1], surface(a.dome[0], a.dome[1]) + 0.045);
-        pool.scale.set(0.25 + state.bleeding * 0.3 + 0.01 * pulse, 0.2 + state.bleeding * 0.24, 1);
+        pool.scale.set(0.3 + state.bleeding * 0.45 + 0.012 * pulse, 0.25 + state.bleeding * 0.38, 1);
       }
       placed.visible = a.phase === "clipped";
       if (placed.visible) {

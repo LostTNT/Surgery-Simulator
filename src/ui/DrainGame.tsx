@@ -146,8 +146,8 @@ export function DrainGame({
           <ellipse cx="100" cy="102" rx="70" ry="80" fill="url(#dg-brain)" />
           <g clipPath="url(#dg-clip)">
             <line x1={d.midline} y1="22" x2={d.midline} y2="182" stroke="#515856" strokeWidth="1.2" />
-            <ellipse cx={g.x} cy={g.y} rx={g.rx} ry={g.ry} fill="#202625" transform={`rotate(-8 ${g.x} ${g.y})`} />
-            <ellipse cx={mirror} cy={g.y} rx={g.rx} ry={g.ry} fill="#202625" transform={`rotate(8 ${mirror} ${g.y})`} />
+            <ellipse cx={g.x} cy={g.y} rx={g.rx} ry={g.ry} fill="#202625" />
+            <ellipse cx={mirror} cy={g.y} rx={g.rx} ry={g.ry} fill="#202625" />
             {d.hazards.map((h) => (
               <g key={h.name}>
                 <circle cx={h.x} cy={h.y} r={h.r + 2.4} fill="#ffffff" opacity="0.22" />
@@ -177,12 +177,12 @@ export function DrainGame({
               <line
                 x1={ex}
                 y1={ey}
-                x2={ex + dx * (view.guided ? 105 : 16)}
-                y2={ey + dy * (view.guided ? 105 : 16)}
+                x2={ex + dx * (view.guided && view.difficulty === "resident" ? 105 : 16)}
+                y2={ey + dy * (view.guided && view.difficulty === "resident" ? 105 : 16)}
               />
             </g>
           )}
-          {view.guided &&
+          {view.guided && view.difficulty === "resident" &&
             !d.secured &&
             [20, 30, 40, 50, 60, 70, 80, 90].map((mm) => (
               <g key={mm}>

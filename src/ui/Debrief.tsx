@@ -1,6 +1,6 @@
 import { CASES, type GameState } from "../game/simulation";
 import { gradeAttempt } from "../game/grading";
-import { lessonFor } from "../game/patients";
+import { lessonFor, outcomeLine } from "../game/patients";
 
 function clock(t: number) {
   return `${Math.floor(t / 60)
@@ -59,6 +59,7 @@ export function Debrief({
         </div>
       </div>
       {children}
+      {outcomeLine(view) && <p className={`outcome ${failed ? "grim" : ""}`}>{outcomeLine(view)}</p>}
       <div className="grade-parts">
         {grade.parts.map((p) => (
           <div key={p.label}>

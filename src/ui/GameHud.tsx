@@ -78,6 +78,8 @@ export function GameHud({
         ? "suction"
         : step === 2 ? "irrigation" : null;
   const current = view.heldTool ? TOOLS[view.heldTool].name : "";
+  // Danger and warnings must not wait for the player to press a button.
+  const urgent = view.feedback.kind === "danger" || view.feedback.kind === "warning";
   const anPercent = an
     ? anStage === 0
       ? an.bridges.reduce((s, b) => s + b.progress, 0) / an.bridges.length
@@ -512,16 +514,20 @@ export function GameHud({
                 <strong>
                   {view.action
                     ? TOOLS[view.tool].action.toLowerCase()
-                    : !view.heldTool
+                    : urgent
+                      ? view.feedback.title
+                      : !view.heldTool
                         ? "Your hand is empty"
                         : "Ready when you are"}
                 </strong>
                 <span>
                   {view.action
                     ? view.feedback.title
-                    : !view.heldTool
-                      ? "Open the tray to pick up a tool."
-                      : "Aim at the field, then hold to operate."}
+                    : urgent
+                      ? view.feedback.detail
+                      : !view.heldTool
+                        ? "Open the tray to pick up a tool."
+                        : "Aim at the field, then hold to operate."}
                 </span>
               </div>
             </div>

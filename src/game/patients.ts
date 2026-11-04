@@ -209,3 +209,54 @@ export function lessonFor(detail: string): string {
     return "An uncontrolled bleed drains the patient quickly. Take control of the source first, everything else can wait.";
   return "";
 }
+
+const AFTER_DEATH: Record<string, string> = {
+  case01: "His daughter came back with the coffee. It was cold by the time anyone told her.",
+  case02: "Her mother is in the waiting room. Nobody has told her yet.",
+  case03: "His mother is still asleep in the chair outside, holding his school bag.",
+  case04: "Her class will be told on Monday.",
+  case05: "His right hand lay open on the sheet.",
+  case06: "Her ward badge is still pinned to her coat.",
+};
+const GOOD_END: Record<string, string> = {
+  lab: "",
+  case01: "Arthur woke up asking for tea, and whether his daughter had finished the crossword.",
+  case02: "Maya woke at dawn and asked who had stolen her bike.",
+  case03: "Leo's fever broke by morning. His mother is still holding the school bag.",
+  case04: "Helena woke up and asked, slowly, whether her class had behaved.",
+  case05: "Daniel flexed his right hand twice and laughed at the ceiling.",
+  case06: "Priya's headache eased within the hour. She asked whose shift it was.",
+};
+function hhmm(start: string, seconds: number) {
+  const [h, m] = start.split(":").map(Number);
+  const total = (h * 60 + m + Math.round(seconds / 60)) % (24 * 60);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+/** One quiet sentence about what the operation meant for the patient. */
+export function outcomeLine(s: {
+  caseId: string;
+  status: string;
+  elapsed: number;
+  injury: number;
+  bloodLoss: number;
+  events: { type: string; detail: string }[];
+}): string {
+  const p = PATIENTS[s.caseId];
+  if (!p || s.caseId === "lab") return "";
+  const first = p.name.split(" ")[0];
+  const seen = (re: RegExp) => s.events.some((e) => re.test(e.detail));
+  if (s.status === "failed") {
+    const died = s.events.some(
+      (e) => e.type === "failure" && /pressure collapsed|blood was lost|herniat|bleeding source/i.test(e.detail),
+    );
+    return died
+      ? `Time of death ${hhmm(p.clock, s.elapsed)}. ${AFTER_DEATH[s.caseId] ?? ""}`
+      : `${first} survived the night, but the damage done in theatre was severe.`;
+  }
+  if (seen(/motor/i)) return `${first} woke up with a weak, clumsy right hand. Physiotherapy starts tomorrow.`;
+  if (seen(/midline/i)) return `${first} woke up but struggled to find words for days.`;
+  if (seen(/parent artery/i)) return `${first} had a small stroke after the clip and will need months of recovery.`;
+  if (s.injury > 0.4) return `${first} woke up, but the recovery will be long.`;
+  if (s.bloodLoss > 600) return `${first} needed a transfusion and a night in intensive care.`;
+  return GOOD_END[s.caseId] ?? "";
+}

@@ -2341,3 +2341,5 @@ input {
 .cine-skip { position: absolute; right: 28px; bottom: 26px; padding: 8px 14px; border: 1px solid #94b29e55; border-radius: 6px; font-size: 12px; color: #9db5a8; }
 .cine-skip:hover { background: #bed4b816; }
 .cinematic::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, #0000 0 2px, #00000026 2px 3px); }
+.outcome { margin: 0; padding: 12px 0 2px; border-top: 1px solid var(--line); font-size: 15px; line-height: 1.55; color: #dfeae2; font-style: italic; }
+.outcome.grim { color: #f1a89c; }

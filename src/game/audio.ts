@@ -21,6 +21,7 @@ export class SurgicalAudio {
     critical = false,
     dead = false,
     bleeding = 0,
+    spo2 = 99,
   ) {
     if (!this.enabled || !this.context) return;
     const ctx = this.context;
@@ -30,8 +31,9 @@ export class SurgicalAudio {
       const oscillator = ctx.createOscillator(),
         gain = ctx.createGain();
       oscillator.type = "sine";
-      oscillator.frequency.value = critical ? 1180 : 780;
-      gain.gain.setValueAtTime(critical ? 0.03 : 0.018, ctx.currentTime);
+      // Pulse-oximeter tone: the pitch drops as oxygen falls.
+      oscillator.frequency.value = 330 + Math.max(0, Math.min(1, (spo2 - 80) / 19)) * 520 + (critical ? 80 : 0);
+      gain.gain.setValueAtTime(critical ? 0.06 : 0.04, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.075);
       oscillator.connect(gain);
       gain.connect(ctx.destination);
@@ -70,6 +72,7 @@ export class SurgicalAudio {
   flat: OscillatorNode | null = null;
   flatGain: GainNode | null = null;
   lastBreath = 0;
+  flatSince = 0;
   hum: GainNode | null = null;
   /** Wet, textured sound under the instruments, a ventilator, and a flatline on death. */
   texture(time: number, active: boolean, tool: string, running: boolean, dead: boolean, bleeding: number) {
@@ -158,6 +161,9 @@ export class SurgicalAudio {
       this.flat.connect(this.flatGain);
       this.flatGain.connect(ctx.destination);
       this.flat.start();
+      this.flatSince = time;
+    } else if (dead && this.flat && this.flatGain && time - this.flatSince > 4) {
+      this.flatGain.gain.setTargetAtTime(0, ctx.currentTime, 0.8);
     } else if (!dead && this.flat) {
       this.flat.stop();
       this.flat = null;

@@ -38,6 +38,7 @@ import {
   type Contact,
 } from "./simulation";
 
+const DEATH = /pressure collapsed|blood was lost|herniat|bleeding source/i;
 export interface Snapshot extends GameState {
   loaded: boolean;
   error: string;
@@ -776,6 +777,7 @@ export class Engine {
     this.emit();
   }
   toggleAnatomy() {
+    if (this.state.difficulty === "chief") return;
     this.state.showAnatomy = !this.state.showAnatomy;
     this.emit();
     this.dirty = true;
@@ -1117,6 +1119,14 @@ export class Engine {
             this.state.depth = this.tip.z;
           } else if (!this.state.inspectionActive)
             this.tip.lerp(this.target, this.precision ? 0.18 : 0.48);
+          if (this.accessPhase === "surgery" && this.heldTool && !this.state.inspectionActive && !this.trayView) {
+            // A real hand shakes more when tired and when the patient is crashing.
+            const stress = 1 + Math.max(0, this.state.vitals.hr - 80) / 40 + Math.min(1, this.state.elapsed / 240);
+            const amp = this.state.difficulty === "resident" ? 0 : 0.0035 * stress * (this.state.difficulty === "chief" ? 1.6 : 1);
+            const tt = this.state.elapsed;
+            this.tip.x += Math.sin(tt * 13.1) * amp;
+            this.tip.y += Math.cos(tt * 11.3 + 1.7) * amp;
+          }
           if (this.accessPhase !== "surgery") {
             this.state.elapsed += 1 / 60;
             this.state.clearance =
@@ -1281,8 +1291,10 @@ export class Engine {
         this.state.status === "running",
         this.state.vitals.hr,
         vitalsLevel(this.state.vitals) === "critical",
-        this.state.status === "failed",
+        this.state.status === "failed" &&
+          this.state.events.some((e) => e.type === "failure" && DEATH.test(e.detail)),
         this.state.bleeding,
+        this.state.vitals.spo2,
       );
       if (now - this.fpsAt > 1000) {
         this.fps =
