@@ -8,7 +8,7 @@ import { Debrief } from "./ui/Debrief";
 import { DrainGame } from "./ui/DrainGame";
 import { letterFor } from "./game/grading";
 import { PATIENTS } from "./game/patients";
-import { DIFFICULTIES, type Difficulty } from "./game/vitals";
+import { DIFFICULTIES, vitalsLevel, type Difficulty } from "./game/vitals";
 
 type Overlay = "none" | "cases" | "briefing" | "guide" | "settings";
 const initial: Snapshot = {
@@ -76,6 +76,12 @@ export default function App() {
     result = view.status === "success" || view.status === "failed",
     failed = view.status === "failed";
   const menuOpen = overlay !== "none" || !playing;
+  const alarm =
+    playing &&
+    overlay === "none" &&
+    (vitalsLevel(view.vitals) === "critical" ||
+      view.aneurysm?.phase === "ruptured" ||
+      (view.drain?.icp ?? 0) > 48);
   const caseInfo = CASES[view.caseId];
   function close() {
     if (returnToWorkstation.current) {
@@ -189,6 +195,7 @@ export default function App() {
     >
       <div ref={field} className="operative-field" />
       <div className="lens-shade" aria-hidden="true" />
+      {alarm && <div className="alarm-vignette" aria-hidden="true" />}
       <header className="hud-top">
         <div className="identity">
           <button
@@ -305,7 +312,7 @@ export default function App() {
                   <span>01</span>Explore your operating room
                 </li>
                 <li>
-                  <span>02</span>Choose from four playable procedures
+                  <span>02</span>Choose from six procedures and read the patient briefing
                 </li>
                 <li>
                   <span>03</span>Follow one clear task at a time
@@ -327,10 +334,17 @@ export default function App() {
               </label>
               <button
                 className="primary-button"
+                onClick={() => open("cases")}
+              >
+                Choose a case
+                <Icon name="arrow" />
+              </button>
+              <button
+                className="secondary-button"
                 onClick={() => engine.current?.startRoom()}
               >
                 Enter operating room
-                <Icon name="arrow" />
+                <Icon name="arrow" size={17} />
               </button>
               <button
                 className="secondary-button"

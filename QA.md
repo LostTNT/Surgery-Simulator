@@ -1,3 +1,17 @@
+# Verification
+
+## Showcase release (November 2026)
+
+Six procedures, a reacting patient and graded debriefs were added on top of the interactive redesign below.
+
+- `npm test`: 71 unit tests, all passing. New suites: `vitals.test.ts` (vitals, grading, aneurysm clipping), `tumor.test.ts` (feeders, motor zone, resection), `drain.test.ts` (aim, CSF return, midline, vessel, far wall, pressure), `twists.test.ts` (difficulty-gated complications).
+- `node tools/qa-aneurysm.cjs`: browser playthrough of Case 04 using real mouse and keyboard input (tethers, neck, clip alignment with `A`/`D`, clip closing, examination, result). Result recorded in `docs/OVERNIGHT_REPORT.md`.
+- `npm run qa -- --case=<id>`: now selects **Resident** after the briefing so washout runs are deterministic. Attending and Chief add complications by design.
+- Screens checked visually at 1280×800 and 390×844: briefing, workstation chooser, monitor and callout, debrief, aneurysm, tumour, drain.
+- Bug found by browser testing and fixed: guide rings floated above the surface, so aiming at a ring landed the tool about 0.16 units off target. Rings are now on the surface.
+- Bug found by browser testing and fixed: the drain screen was covered by the objective panel's text shade.
+- Not verified: human enjoyment, GPU frame rate (software rendering ran at 1 to 2 fps), audio output, and real-device touch input.
+
 # Interactive redesign verification
 
 The current flow under test is: load Suture → select a procedure at the case workstation → Prepare & start surgery → pick up the burr from the tray → carve the guided bone path → lift the flap → complete the case's tool handoffs and objectives → rinse to its clarity target → confirm the readiness checklist → click Examine field → successful session review.

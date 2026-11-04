@@ -2310,3 +2310,5 @@ input {
 @media (max-width: 760px) {
   .briefing-open .menu-bottom { display: none; }
 }
+.alarm-vignette { position: absolute; inset: 0; z-index: 7; pointer-events: none; box-shadow: inset 0 0 120px 20px #d6402f66; animation: alarm-vignette 1.1s ease-in-out infinite; }
+@keyframes alarm-vignette { 50% { box-shadow: inset 0 0 180px 40px #d6402fa6; } }
