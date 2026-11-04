@@ -70,6 +70,7 @@ export class SurgicalAudio {
   flat: OscillatorNode | null = null;
   flatGain: GainNode | null = null;
   lastBreath = 0;
+  hum: GainNode | null = null;
   /** Wet, textured sound under the instruments, a ventilator, and a flatline on death. */
   texture(time: number, active: boolean, tool: string, running: boolean, dead: boolean, bleeding: number) {
     const ctx = this.context!;
@@ -88,6 +89,27 @@ export class SurgicalAudio {
       this.noise.connect(ctx.destination);
       src.start();
     }
+    // Fluorescent mains hum: always there, slightly unsteady, occasionally dips.
+    if (!this.hum) {
+      this.hum = ctx.createGain();
+      this.hum.gain.value = 0;
+      this.hum.connect(ctx.destination);
+      for (const [freq, level] of [[50, 1], [100, 0.55], [150, 0.18]] as const) {
+        const o = ctx.createOscillator(),
+          g = ctx.createGain();
+        o.type = "sine";
+        o.frequency.value = freq;
+        g.gain.value = level;
+        o.connect(g);
+        g.connect(this.hum);
+        o.start();
+      }
+    }
+    this.hum.gain.setTargetAtTime(
+      dead ? 0.004 : 0.011 + 0.004 * Math.sin(time * 0.8) + (Math.random() > 0.992 ? -0.008 : 0),
+      ctx.currentTime,
+      0.08,
+    );
     const f = this.noiseFilter!;
     const wet = tool === "suction";
     f.type = tool === "irrigation" ? "highpass" : wet ? "lowpass" : "bandpass";

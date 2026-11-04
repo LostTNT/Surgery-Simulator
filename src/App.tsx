@@ -6,11 +6,12 @@ import { Icon } from "./ui/Icons";
 import { Briefing } from "./ui/Briefing";
 import { Debrief } from "./ui/Debrief";
 import { DrainGame } from "./ui/DrainGame";
+import { Cinematic } from "./ui/Cinematic";
 import { letterFor } from "./game/grading";
 import { PATIENTS } from "./game/patients";
 import { DIFFICULTIES, vitalsLevel, type Difficulty } from "./game/vitals";
 
-type Overlay = "none" | "cases" | "briefing" | "guide" | "settings";
+type Overlay = "none" | "cases" | "briefing" | "arrival" | "guide" | "settings";
 const initial: Snapshot = {
   ...createState(),
   loaded: false,
@@ -100,6 +101,10 @@ export default function App() {
   const failureDetail = view.events.filter((e) => e.type === "failure").at(-1)?.detail ?? "";
   const died = failed && /pressure collapsed|blood was lost|herniat|bleeding source/i.test(failureDetail);
   function close() {
+    if (overlay === "arrival") {
+      finishArrival();
+      return;
+    }
     if (returnToWorkstation.current) {
       returnToWorkstation.current = false;
       setOverlay("cases");
@@ -179,10 +184,29 @@ export default function App() {
   function scrubIn() {
     engine.current?.setDifficulty(difficulty);
     engine.current?.setCase(selected);
-    engine.current?.startSurgery();
     resumeAfterMenu.current = false;
     returnToWorkstation.current = false;
+    // Sound is part of the scene. Honour an explicit "off" from an earlier visit.
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem("suture.sound");
+    } catch {
+      /* storage unavailable */
+    }
+    if (!view.sound && stored !== "off") engine.current?.toggleSound();
+    setOverlay("arrival");
+  }
+  function finishArrival() {
     setOverlay("none");
+    engine.current?.startSurgery();
+  }
+  function toggleSound() {
+    engine.current?.toggleSound();
+    try {
+      localStorage.setItem("suture.sound", view.sound ? "off" : "on");
+    } catch {
+      /* storage unavailable */
+    }
   }
   function returnToRoom() {
     resumeAfterMenu.current = false;
@@ -237,7 +261,7 @@ export default function App() {
         <div className="utilities">
           <button
             className="icon-button"
-            onClick={() => engine.current?.toggleSound()}
+            onClick={toggleSound}
             aria-label={view.sound ? "Mute audio" : "Enable audio"}
           >
             <Icon name={view.sound ? "sound" : "mute"} />
@@ -302,7 +326,15 @@ export default function App() {
           </button>
         </section>
       )}
-      {view.loaded && !view.error && menuOpen && (
+      {view.loaded && !view.error && overlay === "arrival" && (
+        <Cinematic
+          lines={PATIENTS[selected].arrival}
+          clock={PATIENTS[selected].clock}
+          title={`${CASES[selected].label.toUpperCase()} · ${PATIENTS[selected].diagnosis.toUpperCase()}`}
+          onDone={finishArrival}
+        />
+      )}
+      {view.loaded && !view.error && menuOpen && overlay !== "arrival" && (
         <section
           className={`menu-panel ${overlay === "guide" ? "guide-panel" : ""} ${overlay === "cases" ? "workstation-panel" : ""} ${overlay === "briefing" ? "briefing-panel" : ""}`}
           role="dialog"
@@ -618,7 +650,7 @@ export default function App() {
               </label>
               <button
                 className="setting-row"
-                onClick={() => engine.current?.toggleSound()}
+                onClick={toggleSound}
               >
                 <span>Sound</span>
                 <span>{view.sound ? "On" : "Off"}</span>

@@ -2326,3 +2326,18 @@ input {
 .is-dead .menu-scrim { background: linear-gradient(90deg, #1c0405f7 0%, #2a0507dd 40%, #1c040590 100%); }
 .is-dead .menu-panel h1 { color: #f1a89c; }
 .is-dead .grade-letter { border-color: #b3382c; color: #f1a89c; }
+
+/* ---- Arrival cinematic ---- */
+.cinematic { position: absolute; inset: 0; z-index: 40; background: #020605; display: grid; place-items: center; cursor: pointer; overflow: hidden; }
+.cine-light { position: absolute; top: 0; left: 50%; width: 46vw; height: 62vh; transform: translateX(-50%); background: radial-gradient(ellipse at 50% 0%, #c6e6dc40, transparent 70%); animation: flicker 5.5s infinite; pointer-events: none; }
+@keyframes flicker { 0%, 100% { opacity: 0.85; } 4% { opacity: 0.2; } 6% { opacity: 0.9; } 41% { opacity: 0.8; } 43% { opacity: 0.1; } 44% { opacity: 0.7; } 46% { opacity: 0.15; } 48% { opacity: 0.9; } 83% { opacity: 0.85; } }
+.cine-clock { position: absolute; top: 34px; left: 38px; font: 15px ui-monospace, monospace; letter-spacing: 0.2em; color: #87a899; animation: blink 2s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0.55; } }
+.cine-lines { position: relative; max-width: min(640px, calc(100vw - 48px)); display: grid; gap: 18px; text-align: left; }
+.cine-lines p { margin: 0; font-size: clamp(18px, 2.4vw, 26px); line-height: 1.45; letter-spacing: 0.01em; color: #dfeae2; animation: line-in 1.6s ease-out both; }
+.cine-lines p.past { color: #6f8a7c; animation: none; }
+@keyframes line-in { from { opacity: 0; filter: blur(5px); transform: translateY(6px); } }
+.cine-title { position: absolute; bottom: 16vh; left: 0; right: 0; text-align: center; font: 12px ui-monospace, monospace; letter-spacing: 0.35em; color: #a6c0b2; animation: line-in 1.8s ease-out both; }
+.cine-skip { position: absolute; right: 28px; bottom: 26px; padding: 8px 14px; border: 1px solid #94b29e55; border-radius: 6px; font-size: 12px; color: #9db5a8; }
+.cine-skip:hover { background: #bed4b816; }
+.cinematic::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, #0000 0 2px, #00000026 2px 3px); }

@@ -36,12 +36,19 @@ export function gradeAttempt(s: GameState, par: number): Grade {
     : 1;
   const injury = 30 * (1 - clamp01(s.injury)),
     blood = 25 * (1 - clamp01(s.bloodLoss / 600)),
-    speed = 15 * clamp01(1 - Math.max(0, s.elapsed - par) / par),
+    speed =
+      s.status === "failed" ? 0 : 15 * clamp01(1 - Math.max(0, s.elapsed - par) / par),
     stability = 15 * clamp01((s.minSys - 60) / 40),
     complications =
-      s.complicationsTriggered === 0
-        ? 15
-        : 15 * clamp01(s.complicationsHandled / s.complicationsTriggered);
+      s.status === "failed"
+        ? 0
+        : Math.max(
+            0,
+            (s.complicationsTriggered === 0
+              ? 15
+              : 15 * clamp01(s.complicationsHandled / s.complicationsTriggered)) -
+              s.mistakes * 4,
+          );
   const parts: GradePart[] = [
     {
       label: "Tissue protection",
@@ -68,12 +75,12 @@ export function gradeAttempt(s: GameState, par: number): Grade {
       note:
         s.complicationsTriggered === 0
           ? "None occurred"
-          : `${s.complicationsHandled} of ${s.complicationsTriggered} handled`,
+          : `${s.complicationsHandled} of ${s.complicationsTriggered} handled${s.mistakes ? ` · ${s.mistakes} caused by you` : ""}`,
     },
     s.tumor
       ? {
           label: "Extent of resection",
-          value: 15 * clamp01((resection - 0.5) / 0.45),
+          value: s.status === "failed" ? 0 : 15 * clamp01((resection - 0.5) / 0.45),
           max: 15,
           note: `${Math.round(resection * 100)}% removed`,
         }
@@ -86,5 +93,7 @@ export function gradeAttempt(s: GameState, par: number): Grade {
   ];
   let points = Math.round(parts.reduce((a, p) => a + p.value, 0));
   if (s.status === "failed") points = Math.min(points, 39);
+  // Resident is the forgiving standard: it cannot earn the top grades.
+  if (s.difficulty === "resident") points = Math.min(points, 91);
   return { letter: letterFor(points), points, parts };
 }

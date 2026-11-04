@@ -131,6 +131,7 @@ const operationTimeout = Number(process.env.SUTURE_OPERATION_TIMEOUT || "120000"
     await page.getByRole("button", { name: "Prepare & start surgery", exact: true }).click();
     await page.getByRole("button", { name: "Resident" }).click();
     await page.getByRole("button", { name: "Scrub in", exact: true }).click();
+    await page.getByRole("button", { name: "Skip intro", exact: true }).click();
     await page
       .getByRole("button", { name: "Pick up Bone burr", exact: true })
       .click();

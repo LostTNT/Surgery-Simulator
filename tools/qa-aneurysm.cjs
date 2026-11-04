@@ -47,6 +47,7 @@ const dpr = Number(process.env.SUTURE_DPR || "0.5");
     assert.ok(await page.getByText("Unruptured aneurysm, surface artery").isVisible());
     await page.getByRole("button", { name: "Resident" }).click();
     await page.getByRole("button", { name: "Scrub in", exact: true }).click();
+    await page.getByRole("button", { name: "Skip intro", exact: true }).click();
     await page.getByRole("button", { name: "Pick up Bipolar", exact: true }).click();
     await page.waitForTimeout(2500);
     const a = await an();

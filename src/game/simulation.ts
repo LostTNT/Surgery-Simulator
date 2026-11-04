@@ -246,6 +246,8 @@ export interface GameState {
   said: string[];
   complicationsTriggered: number;
   complicationsHandled: number;
+  /** Complications the surgeon caused (a rupture, an unsealed feeder, a missed drain pass). */
+  mistakes: number;
   aneurysm: AneurysmState | null;
   tumor: TumorState | null;
   drain: DrainState | null;
@@ -641,6 +643,7 @@ export function createState(
     said: [],
     complicationsTriggered: 0,
     complicationsHandled: 0,
+    mistakes: 0,
     aneurysm: procedure.kind === "aneurysm" ? createAneurysm() : null,
     tumor: procedure.kind === "tumor" ? createTumor() : null,
     drain: procedure.kind === "drain" ? createDrain() : null,
@@ -793,6 +796,7 @@ export function ruptureAneurysm(s: GameState, cause: string) {
   s.sourceControlled = false;
   s.shock = Math.min(1, s.shock + 0.5);
   s.complicationsTriggered++;
+  s.mistakes++;
   s.action = false;
   logEvent(s, "rupture", `Aneurysm ruptured: ${cause}`, [a.dome[0], a.dome[1], 0]);
   setFeedback(
@@ -813,7 +817,9 @@ function applyClip(s: GameState, a: AneurysmState, c: Contact) {
   let angErr = Math.abs(
     ((((s.clipAngle - a.axis + half) % Math.PI) + Math.PI) % Math.PI) - half,
   );
+  const trueSide = side;
   if (blind) {
+    // Blood hides the neck, so the clip lands off-line. This never counts as pinching the artery.
     angErr += 0.5;
     side -= 0.06;
   }
@@ -824,7 +830,8 @@ function applyClip(s: GameState, a: AneurysmState, c: Contact) {
     setFeedback(s, "Clip slipped.", "Tissue still tethers the neck. Release the tethers and free the neck first.", "warning");
     return;
   }
-  if (side < 0.015 && Math.abs(along) < 0.12) {
+  if (!blind && trueSide < 0.015 && Math.abs(along) < 0.12) {
+    s.mistakes++;
     s.injury = Math.min(1, s.injury + 0.22);
     a.tension = Math.min(0.97, a.tension + 0.1);
     logEvent(s, "injury", "Clip narrowed the parent artery and was removed", [tx, ty, 0]);
@@ -965,6 +972,7 @@ function stepTumor(s: GameState, c: Contact, dt: number) {
       s.sourceControlled = false;
       s.activeComplication = "feeder";
       s.complicationsTriggered++;
+      s.mistakes++;
       s.action = false;
       logEvent(s, "complication", "Cut past an unsealed feeding vessel; it began to bleed", [f.x, f.y, 0]);
       setFeedback(s, "A feeder is bleeding.", "Switch to bipolar and seal the marked vessel.", "danger");
@@ -986,11 +994,11 @@ function stepDrain(s: GameState, dt: number) {
     }
     return;
   }
-  d.icp = Math.min(80, d.icp + dt * (0.22 + s.injury * 0.3) * hazard(s));
+  d.icp = Math.min(80, d.icp + dt * (0.5 + s.injury * 0.4) * hazard(s));
   s.shock = clamp((d.icp - 30) / 32);
-  if (d.icp > 42) say(s, `Pressure ${Math.round(d.icp)}. Pupils are sluggish. Hurry.`, "warning", "icp42");
-  if (d.icp > 52) say(s, "She is herniating. Get that drain in.", "danger", "icp52");
-  if (d.icp >= 62) {
+  if (d.icp > 40) say(s, `Pressure ${Math.round(d.icp)}. Pupils are sluggish. Hurry.`, "warning", "icp42");
+  if (d.icp > 50) say(s, "She is herniating. Get that drain in.", "danger", "icp52");
+  if (d.icp >= 60) {
     s.status = "failed";
     s.action = false;
     logEvent(s, "failure", "Intracranial pressure rose until the brain herniated. The patient could not be saved.");
@@ -1036,9 +1044,10 @@ function stepDrain(s: GameState, dt: number) {
       setFeedback(s, `Clipped a ${h.name}.`, "A small bleed will raise the pressure. Re-aim to avoid it next time.", "danger");
       say(s, "Small bleed along the tract. Pressure ticked up.", "warning");
     }
-  if (d.motion < 0 && d.depth <= 1 && before > 1 && d.maxDepth >= 20) {
+  if (d.motion < 0 && d.depth <= 1 && before > 1 && d.maxDepth >= 10) {
     d.passes++;
     s.complicationsTriggered++;
+    s.mistakes++;
     s.injury = Math.min(1, s.injury + 0.08);
     logEvent(s, "complication", `Pass ${d.passes} found no fluid; the catheter was withdrawn`);
     setFeedback(s, "Withdrawn.", "Re-aim from the burr hole and try again.", "warning");
@@ -1090,12 +1099,29 @@ function stepTwists(s: GameState) {
     say(s, tw.say, "warning");
   });
 }
+/** Sustained injury ends the operation no matter which procedure caused it. */
+function checkInjuryFailure(s: GameState) {
+  if (s.status !== "running" || s.injury < 1) return;
+  s.status = "failed";
+  s.action = false;
+  logEvent(s, "failure", "Sustained tissue injury compromised the field.");
+}
 /** Blood loss, monitor values, remarks and collapse. Returns true if the patient failed. */
 function stepPhysiology(s: GameState, dt: number): boolean {
   const bleeding = s.bleeding > 0.02;
   if (bleeding)
     s.bloodLoss += dt * s.bleeding * (s.aneurysm?.phase === "ruptured" ? 9 : 5);
-  else s.shock = Math.max(0, s.shock - dt * 0.02);
+  else {
+    // A long operation wears the patient down: brain swelling, anaesthetic depth, blood pressure.
+    const par = CASES[s.caseId].parSeconds;
+    const floor =
+      s.difficulty === "resident" || s.drain
+        ? 0
+        : Math.min(0.4, (Math.max(0, s.elapsed - par * 0.85) / par) * 0.4 * hazard(s));
+    if (floor > 0.05)
+      say(s, "We have been under a long time. The brain is getting tight. Let us move.", "warning", "overtime");
+    s.shock = Math.max(floor, s.shock - dt * 0.02);
+  }
   s.vitals = stepVitals(
     s.vitals,
     { bleeding: s.bleeding, bloodLoss: s.bloodLoss, injury: s.injury, shock: s.shock },
@@ -1154,8 +1180,11 @@ export function tick(s: GameState, c: Contact, dt: number) {
   if (stepPhysiology(s, dt)) return;
   stepAneurysm(s, c, dt);
   stepTumor(s, c, dt);
+  checkInjuryFailure(s);
+  if (s.status !== "running") return;
   if (s.drain) {
     stepDrain(s, dt);
+    checkInjuryFailure(s);
     return;
   }
   stepTwists(s);
