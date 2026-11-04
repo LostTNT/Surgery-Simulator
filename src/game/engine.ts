@@ -15,6 +15,7 @@ import { BoneWindow, buildBurr } from "./access";
 import { SoftTissue } from "./soft-tissue";
 import { InstrumentTray, TRAY_TOOLS, CLIP_TRAY_TOOLS, TUMOR_TRAY_TOOLS } from "./tool-tray";
 import { buildTumor, type TumorObjects } from "./tumor";
+import { buildWounds, type WoundObjects } from "./wounds";
 import { buildAneurysm, buildClip, type AneurysmObjects } from "./aneurysm";
 import { DIFFICULTIES, vitalsLevel, type Difficulty } from "./vitals";
 import {
@@ -68,6 +69,7 @@ export class Engine {
   field: FieldObjects | null = null;
   aneurysm: AneurysmObjects | null = null;
   tumor: TumorObjects | null = null;
+  wounds: WoundObjects | null = null;
   tools: Partial<Record<Tool, THREE.Group>> = {};
   tip = new THREE.Vector3(0.55, -0.3, 0.62);
   target = this.tip.clone();
@@ -311,6 +313,7 @@ export class Engine {
       );
       this.aneurysm = buildAneurysm(this.scene, (x, y) => this.surface(x, y));
       this.tumor = buildTumor(this.scene, (x, y) => this.surface(x, y), this.brain);
+      this.wounds = buildWounds(this.scene, (x, y) => this.surface(x, y), this.brain);
       this.bone = new BoneWindow(this.scene, boneTexture);
       for (const [name, model] of [
         ["suction", suction],
@@ -1227,6 +1230,7 @@ export class Engine {
       if (this.dirty) {
         this.aneurysm?.update(this.state, now / 1000);
         this.tumor?.update(this.state, now / 1000);
+        this.wounds?.update(this.state, now / 1000);
         this.field?.update(
           this.state,
           this.tip,
@@ -1277,6 +1281,8 @@ export class Engine {
         this.state.status === "running",
         this.state.vitals.hr,
         vitalsLevel(this.state.vitals) === "critical",
+        this.state.status === "failed",
+        this.state.bleeding,
       );
       if (now - this.fpsAt > 1000) {
         this.fps =

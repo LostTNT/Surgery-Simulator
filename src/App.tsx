@@ -83,6 +83,22 @@ export default function App() {
       view.aneurysm?.phase === "ruptured" ||
       (view.drain?.icp ?? 0) > 48);
   const caseInfo = CASES[view.caseId];
+  const live = playing && overlay === "none";
+  // The patient fading: colour drains and vision narrows as pressure falls.
+  const fade = live ? Math.min(1, Math.max(0, (104 - view.vitals.sys) / 44)) : 0;
+  const haze = live ? Math.min(0.6, view.bleeding * 0.45 + view.bloodLoss / 1800) : 0;
+  const lastEvent = view.events[view.events.length - 1];
+  const [jolt, setJolt] = useState(false);
+  const joltKey = lastEvent ? `${lastEvent.time}|${lastEvent.detail}` : "";
+  useEffect(() => {
+    if (!lastEvent || !live) return;
+    if (!["injury", "rupture"].includes(lastEvent.type)) return;
+    setJolt(true);
+    const id = setTimeout(() => setJolt(false), 480);
+    return () => clearTimeout(id);
+  }, [joltKey]);
+  const failureDetail = view.events.filter((e) => e.type === "failure").at(-1)?.detail ?? "";
+  const died = failed && /pressure collapsed|blood was lost|herniat|bleeding source/i.test(failureDetail);
   function close() {
     if (returnToWorkstation.current) {
       returnToWorkstation.current = false;
@@ -182,7 +198,9 @@ export default function App() {
         ? "Make it your own."
         : overlay === "cases"
           ? "Case workstation"
-          : failed
+          : died
+            ? "The patient did not survive."
+            : failed
             ? "Take a breath. Try again."
             : result
               ? "A controlled finish."
@@ -191,11 +209,17 @@ export default function App() {
                 : "Your operating room.";
   return (
     <main
-      className={`game ${menuOpen ? "has-menu" : "is-playing"} ${view.location === "room" ? "in-room" : ""} ${overlay === "cases" ? "workstation-open" : ""} ${overlay === "briefing" ? "briefing-open" : ""}`}
+      className={`game ${menuOpen ? "has-menu" : "is-playing"} ${view.location === "room" ? "in-room" : ""} ${overlay === "cases" ? "workstation-open" : ""} ${overlay === "briefing" ? "briefing-open" : ""} ${jolt ? "jolt" : ""} ${died ? "is-dead" : ""}`}
     >
-      <div ref={field} className="operative-field" />
+      <div
+        ref={field}
+        className="operative-field"
+        style={fade > 0.02 ? { filter: `saturate(${1 - fade * 0.65}) blur(${fade * 1.6}px)` } : undefined}
+      />
       <div className="lens-shade" aria-hidden="true" />
       {alarm && <div className="alarm-vignette" aria-hidden="true" />}
+      {haze > 0.02 && <div className="blood-haze" style={{ opacity: haze }} aria-hidden="true" />}
+      {fade > 0.02 && <div className="fade-vignette" style={{ opacity: fade }} aria-hidden="true" />}
       <header className="hud-top">
         <div className="identity">
           <button

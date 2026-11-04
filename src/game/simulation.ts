@@ -1184,6 +1184,7 @@ export function tick(s: GameState, c: Contact, dt: number) {
     const rate = c.vessel ? 2.7 : thermalInjury ? 1.5 : 1.15;
     s.injury = Math.min(1, s.injury + dt * rate * hazard(s));
     s.contactTime += dt;
+    if (s.contactTime > 0.09) say(s, "The patient flinched. Easy, easy.", "warning", "flinch");
     if (s.contactTime > 0.09 && s.bleedPosition === null) {
       s.bleedPosition = [...(c.injuryPoint ?? c.tip)];
       s.bleeding = 0.14;
