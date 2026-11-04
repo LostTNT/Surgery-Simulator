@@ -27,3 +27,4 @@ The reference surface and this game are not approved clinical tools. No endorsem
 ## Third-party assets added for the first-person redesign
 
 - `env/surgery_1k.hdr`: "Surgery" HDRI by Oliksiy Yakovlyev from [Poly Haven](https://polyhaven.com/a/surgery), **CC0**. Used only for environment lighting and reflections.
+- `textures/drape.png`: derived from "Stretch Poplin" by Poly Haven, **CC0** ([polyhaven.com/a/stretch_poplin](https://polyhaven.com/a/stretch_poplin)), converted to greyscale and contrast-stretched so the material colour tints it. Replaces the earlier generated texture.
