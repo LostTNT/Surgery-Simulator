@@ -23,6 +23,9 @@ import {
   pause,
   chooseTool,
   checkpoint,
+  aimDrain,
+  driveDrain,
+  secureDrain,
   logEvent,
   beginInspection as startInspection,
   cancelInspection,
@@ -732,6 +735,23 @@ export class Engine {
     this.emit();
     this.dirty = true;
   }
+  drainAim(angle: number) {
+    const d = this.state.drain;
+    if (!d) return;
+    const before = d.angle;
+    aimDrain(this.state, angle);
+    if (d.angle !== before) {
+      this.emit();
+      this.publishAt = performance.now();
+    }
+  }
+  drainDrive(motion: -1 | 0 | 1) {
+    driveDrain(this.state, motion);
+  }
+  drainSecure() {
+    secureDrain(this.state);
+    this.emit();
+  }
   setDifficulty(value: Difficulty) {
     this.state.difficulty = value;
     this.state.guided = DIFFICULTIES[value].guided;
@@ -905,6 +925,7 @@ export class Engine {
         return;
       }
       if (this.state.status !== "running") return;
+      if (this.state.drain && this.location === "surgery") return;
       if (this.location === "room") {
         const k = e.key.toLowerCase();
         if (

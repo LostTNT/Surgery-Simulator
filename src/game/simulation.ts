@@ -11,8 +11,8 @@ import {
 export type { Difficulty, Vitals };
 export type Tool = "suction" | "irrigation" | "bipolar" | "drill" | "clip";
 export type Status = "ready" | "running" | "paused" | "success" | "failed";
-export type CaseId = "lab" | "case01" | "case02" | "case03" | "case04" | "case05";
-export type CaseKind = "washout" | "aneurysm" | "tumor";
+export type CaseId = "lab" | "case01" | "case02" | "case03" | "case04" | "case05" | "case06";
+export type CaseKind = "washout" | "aneurysm" | "tumor" | "drain";
 export type Vec = [number, number, number];
 export interface Pocket {
   x: number;
@@ -126,6 +126,82 @@ export function tumorDone(s: GameState) {
     tumorResected(s) >= s.tumor.target
   );
 }
+export interface DrainState {
+  /** Burr hole on the skull. Scan units are millimetres on a 200-unit slice. */
+  entry: [number, number];
+  target: { x: number; y: number; rx: number; ry: number };
+  /** x of the midline falx; crossing it injures the other hemisphere. */
+  midline: number;
+  hazards: { x: number; y: number; r: number; name: string; hit: boolean }[];
+  angle: number;
+  depth: number;
+  motion: -1 | 0 | 1;
+  icp: number;
+  inVentricle: boolean;
+  wasInside: boolean;
+  seen: boolean;
+  crossed: boolean;
+  passedThrough: boolean;
+  secured: boolean;
+  passes: number;
+  maxDepth: number;
+}
+export const DRAIN_INSERT_SPEED = 9;
+export const DRAIN_WITHDRAW_SPEED = 28;
+export const DRAIN_MAX_DEPTH = 95;
+export const DRAIN_SKULL = 7;
+export function createDrain(): DrainState {
+  return {
+    entry: [62, 28],
+    target: { x: 80, y: 98, rx: 12, ry: 21 },
+    midline: 104,
+    hazards: [{ x: 69, y: 62, r: 2.8, name: "sulcal vessel", hit: false }],
+    angle: 1.5,
+    depth: 0,
+    motion: 0,
+    icp: 31,
+    inVentricle: false,
+    wasInside: false,
+    seen: false,
+    crossed: false,
+    passedThrough: false,
+    secured: false,
+    passes: 0,
+    maxDepth: 0,
+  };
+}
+export function drainTip(d: DrainState): [number, number] {
+  return [d.entry[0] + Math.cos(d.angle) * d.depth, d.entry[1] + Math.sin(d.angle) * d.depth];
+}
+/** Aim is locked once the catheter has entered the brain. */
+export function aimDrain(s: GameState, angle: number) {
+  const d = s.drain;
+  if (!d || s.status !== "running" || d.secured || d.depth > 4) return;
+  d.angle = Math.min(2.45, Math.max(0.55, angle));
+}
+export function driveDrain(s: GameState, motion: -1 | 0 | 1) {
+  const d = s.drain;
+  if (!d || s.status !== "running" || d.secured) return;
+  d.motion = motion;
+}
+export function secureDrain(s: GameState) {
+  const d = s.drain;
+  if (!d || s.status !== "running" || d.secured) return;
+  d.motion = 0;
+  if (d.depth < DRAIN_SKULL + 2) {
+    setFeedback(s, "Insert the catheter first.", "Hold to advance it into the brain.", "warning");
+    return;
+  }
+  if (!d.inVentricle) {
+    setFeedback(s, "No CSF return.", "The tip is not in the ventricle. Withdraw and re-aim.", "warning");
+    say(s, "Nothing is draining. Pressure is still climbing.", "warning");
+    return;
+  }
+  d.secured = true;
+  logEvent(s, "stage", `Catheter secured at ${Math.round(d.depth)} mm`);
+  setFeedback(s, "Catheter secured.", "Fluid is draining. Pressure is falling.", "good");
+  say(s, "Pressure is coming down. That is a good drain.", "good");
+}
 export interface GameState {
   caseId: CaseId;
   status: Status;
@@ -172,6 +248,7 @@ export interface GameState {
   complicationsHandled: number;
   aneurysm: AneurysmState | null;
   tumor: TumorState | null;
+  drain: DrainState | null;
   /** Name of the unresolved complication, if any (used to count handled ones). */
   activeComplication: string | null;
   /** Orientation of the held clip in radians. */
@@ -355,6 +432,28 @@ export const CASES: Record<CaseId, ProcedureCase> = {
       { title: "Examine the field", detail: "Check the resection and that the motor area is intact.", tool: "irrigation" },
     ],
   },
+  case06: {
+    kind: "drain",
+    preOpened: true,
+    name: "Ventricular drain",
+    label: "Case 06",
+    difficulty: "Emergency",
+    duration: "ICP RISING",
+    parSeconds: 120,
+    brief:
+      "Pressure inside the head is climbing. Aim the catheter from the burr hole at the swollen ventricle on the scan, advance it, and secure it the moment fluid returns. Avoid the vessel and the midline.",
+    pockets: [],
+    suctionRate: 0,
+    irrigationRate: 0,
+    clarityRequired: 0,
+    bleedingSource: null,
+    initialBleeding: 0,
+    objectives: [
+      { title: "Aim the catheter", detail: "Point from the burr hole toward the dark ventricle.", tool: "suction" },
+      { title: "Advance and find CSF", detail: "Hold to advance. Release as fluid returns.", tool: "suction" },
+      { title: "Secure and drain", detail: "Secure the catheter and let the pressure fall.", tool: "suction" },
+    ],
+  },
 };
 export const TOOLS: Record<
   Tool,
@@ -465,6 +564,7 @@ export function createState(
     complicationsHandled: 0,
     aneurysm: procedure.kind === "aneurysm" ? createAneurysm() : null,
     tumor: procedure.kind === "tumor" ? createTumor() : null,
+    drain: procedure.kind === "drain" ? createDrain() : null,
     activeComplication: null,
     clipAngle: procedure.kind === "aneurysm" ? ANEURYSM_AXIS + 0.75 : 0,
   };
@@ -792,6 +892,84 @@ function stepTumor(s: GameState, c: Contact, dt: number) {
     }
   });
 }
+function stepDrain(s: GameState, dt: number) {
+  const d = s.drain;
+  if (!d) return;
+  if (d.secured) {
+    d.icp = Math.max(10, d.icp - dt * 3.4);
+    s.shock = Math.max(0, s.shock - dt * 0.05);
+    if (d.icp <= 16) {
+      s.complicationsHandled = s.complicationsTriggered;
+      s.status = "success";
+      s.action = false;
+      logEvent(s, "complete", "Pressure normalised through the ventricular drain");
+    }
+    return;
+  }
+  d.icp = Math.min(80, d.icp + dt * (0.22 + s.injury * 0.3) * hazard(s));
+  s.shock = clamp((d.icp - 30) / 32);
+  if (d.icp > 42) say(s, `Pressure ${Math.round(d.icp)}. Pupils are sluggish. Hurry.`, "warning", "icp42");
+  if (d.icp > 52) say(s, "She is herniating. Get that drain in.", "danger", "icp52");
+  if (d.icp >= 62) {
+    s.status = "failed";
+    s.action = false;
+    logEvent(s, "failure", "Intracranial pressure rose until the brain herniated. The patient could not be saved.");
+    return;
+  }
+  const speed = d.motion > 0 ? DRAIN_INSERT_SPEED : DRAIN_WITHDRAW_SPEED;
+  const before = d.depth;
+  d.depth = clamp(d.depth + d.motion * speed * dt, 0, DRAIN_MAX_DEPTH);
+  if (d.depth >= DRAIN_MAX_DEPTH) d.motion = 0;
+  d.maxDepth = Math.max(d.maxDepth, d.depth);
+  const [tx, ty] = drainTip(d);
+  const inBrain = d.depth > DRAIN_SKULL;
+  const g = d.target;
+  d.inVentricle = inBrain && ((tx - g.x) / g.rx) ** 2 + ((ty - g.y) / g.ry) ** 2 < 1;
+  if (d.inVentricle && !d.seen) {
+    d.seen = true;
+    d.wasInside = true;
+    logEvent(s, "stage", `CSF return at ${Math.round(d.depth)} mm`);
+    setFeedback(s, "CSF return.", "You are in the ventricle. Stop here and secure the catheter.", "good");
+    say(s, "Clear fluid is coming back. Secure it.", "good");
+  }
+  if (d.wasInside && !d.inVentricle && d.motion > 0 && !d.passedThrough) {
+    d.passedThrough = true;
+    s.injury = Math.min(1, s.injury + 0.12);
+    logEvent(s, "injury", "Catheter passed through the far wall of the ventricle");
+    say(s, "You are through the other side. Stop.", "danger");
+  }
+  if (d.passedThrough && d.motion > 0 && !d.inVentricle) s.injury = Math.min(1, s.injury + dt * 0.4 * hazard(s));
+  if (inBrain && tx > d.midline) {
+    s.injury = Math.min(1, s.injury + dt * 0.35 * hazard(s));
+    if (!d.crossed) {
+      d.crossed = true;
+      logEvent(s, "injury", "Catheter crossed the midline into the other hemisphere");
+      setFeedback(s, "Past the midline.", "You are in the wrong hemisphere. Withdraw.", "danger");
+    }
+  }
+  for (const h of d.hazards)
+    if (!h.hit && inBrain && Math.hypot(tx - h.x, ty - h.y) < h.r + 1.5) {
+      h.hit = true;
+      s.injury = Math.min(1, s.injury + 0.25);
+      d.icp += 4;
+      logEvent(s, "injury", `Catheter clipped a ${h.name}`);
+      setFeedback(s, `Clipped a ${h.name}.`, "A small bleed will raise the pressure. Re-aim to avoid it next time.", "danger");
+      say(s, "Small bleed along the tract. Pressure ticked up.", "warning");
+    }
+  if (d.motion < 0 && d.depth <= 1 && before > 1 && d.maxDepth >= 20) {
+    d.passes++;
+    s.complicationsTriggered++;
+    s.injury = Math.min(1, s.injury + 0.08);
+    logEvent(s, "complication", `Pass ${d.passes} found no fluid; the catheter was withdrawn`);
+    setFeedback(s, "Withdrawn.", "Re-aim from the burr hole and try again.", "warning");
+    d.maxDepth = 0;
+    d.seen = false;
+    d.wasInside = false;
+    d.passedThrough = false;
+    d.crossed = false;
+    for (const h of d.hazards) h.hit = false;
+  }
+}
 /** Blood loss, monitor values, remarks and collapse. Returns true if the patient failed. */
 function stepPhysiology(s: GameState, dt: number): boolean {
   const bleeding = s.bleeding > 0.02;
@@ -856,6 +1034,10 @@ export function tick(s: GameState, c: Contact, dt: number) {
   if (stepPhysiology(s, dt)) return;
   stepAneurysm(s, c, dt);
   stepTumor(s, c, dt);
+  if (s.drain) {
+    stepDrain(s, dt);
+    return;
+  }
   if (s.status !== "running") return;
   const active = s.action && c.inField;
   if (active) s.activeTime += dt;

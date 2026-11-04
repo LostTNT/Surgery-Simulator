@@ -156,7 +156,7 @@ export function buildTumor(
       }
       const next = t.feeders.find((f) => !f.done && !f.bleeding);
       ring.visible = state.guided && state.status === "running" && Boolean(next);
-      if (next) ring.position.set(next.x, next.y, surface(next.x, next.y) + 0.1);
+      if (next) ring.position.set(next.x, next.y, surface(next.x, next.y) + 0.02);
       ring.scale.setScalar(1 + 0.08 * Math.sin(time * 4));
     },
   };

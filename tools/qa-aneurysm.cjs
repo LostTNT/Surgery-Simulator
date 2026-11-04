@@ -28,7 +28,7 @@ const dpr = Number(process.env.SUTURE_DPR || "0.5");
     throw new Error(`Timed out: ${label}`);
   };
   const screen = (x, y) =>
-    page.evaluate(([x, y]) => { const e = window.__SUTURE__; return e.project(x, y, e.surface(x, y) + 0.1); }, [x, y]);
+    page.evaluate(([x, y]) => { const e = window.__SUTURE__; return e.project(x, y, e.surface(x, y)); }, [x, y]);
   const swap = async (placing, picking) => {
     await page.keyboard.press("t");
     await page.getByRole("button", { name: new RegExp(`^Place ${placing}`) }).waitFor();

@@ -5,6 +5,7 @@ import { GameHud } from "./ui/GameHud";
 import { Icon } from "./ui/Icons";
 import { Briefing } from "./ui/Briefing";
 import { Debrief } from "./ui/Debrief";
+import { DrainGame } from "./ui/DrainGame";
 import { DIFFICULTIES, type Difficulty } from "./game/vitals";
 
 type Overlay = "none" | "cases" | "briefing" | "guide" | "settings";
@@ -222,7 +223,15 @@ export default function App() {
           )}
         </div>
       </header>
-      {!menuOpen && (
+      {!menuOpen && view.drain && view.location === "surgery" && (
+        <DrainGame
+          view={view}
+          onAim={(a) => engine.current?.drainAim(a)}
+          onDrive={(m) => engine.current?.drainDrive(m)}
+          onSecure={() => engine.current?.drainSecure()}
+        />
+      )}
+      {!menuOpen && !(view.drain && view.location === "surgery") && (
         <GameHud
           view={view}
           onTool={(tool) => engine.current?.selectTool(tool)}

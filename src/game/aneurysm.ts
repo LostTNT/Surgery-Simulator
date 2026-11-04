@@ -201,11 +201,11 @@ export function buildAneurysm(scene: THREE.Scene, surface: Surface): AneurysmObj
                 ? a.work
                 : a.clipSpot;
       ring.visible = Boolean(target) && state.guided && state.status === "running" && a.phase !== "ruptured";
-      if (target) ring.position.set(target[0], target[1], surface(target[0], target[1]) + 0.1);
+      if (target) ring.position.set(target[0], target[1], surface(target[0], target[1]) + 0.02);
       ring.scale.setScalar(1 + 0.08 * Math.sin(time * 4));
       const aligning = state.tool === "clip" && state.guided && a.phase !== "clipped" && !next && a.dissection >= 0.9;
       axisLine.visible = aligning && state.status === "running";
-      axisLine.position.set(a.clipSpot[0], a.clipSpot[1], surface(a.clipSpot[0], a.clipSpot[1]) + 0.1);
+      axisLine.position.set(a.clipSpot[0], a.clipSpot[1], surface(a.clipSpot[0], a.clipSpot[1]) + 0.02);
       axisLine.rotation.z = a.axis;
     },
   };
