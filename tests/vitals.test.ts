@@ -49,8 +49,8 @@ test("uncontrolled bleeding eventually collapses the patient", () => {
 test("controlling bleeding lets the patient recover and the anaesthetist says so", () => {
   const s = createState();
   s.status = "running";
-  s.bleeding = 0.5;
-  run(s, 25);
+  s.bleeding = 0.75;
+  run(s, 18);
   assert.ok(s.vitals.sys < 100);
   assert.ok(s.said.includes("bp88"), "needs to have dropped under 88 for the recovery line");
   s.bleeding = 0;
