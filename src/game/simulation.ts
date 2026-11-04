@@ -1169,7 +1169,7 @@ export function tick(s: GameState, c: Contact, dt: number) {
   if (s.action) cancelInspection(s);
   if (!c.inField) s.action = false;
   if (s.bleeding > 0.02) {
-    s.bleeding = Math.min(1, s.bleeding + dt * 0.006 * hazard(s));
+    s.bleeding = Math.min(1, s.bleeding + dt * 0.011 * hazard(s));
     if (s.bleeding >= 1) {
       s.status = "failed";
       s.action = false;

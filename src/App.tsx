@@ -257,7 +257,7 @@ export default function App() {
       <div
         ref={field}
         className="operative-field"
-        style={fade > 0.02 ? { filter: `saturate(${1 - fade * 0.65}) blur(${fade * 1.6}px)` } : undefined}
+        style={fade > 0.02 ? { filter: `saturate(${1 - fade * 0.7}) brightness(${1 - fade * 0.25})` } : undefined}
       />
       <div className="lens-shade" aria-hidden="true" />
       {alarm && <div className="alarm-vignette" aria-hidden="true" />}

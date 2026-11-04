@@ -211,6 +211,11 @@ export class OperatingRoom {
     const rearFill = new THREE.PointLight(0x94b4c8, 1.4, 7, 2);
     rearFill.position.set(-2.7, 2.5, -2.6);
     this.scene.add(rearFill);
+    // An empty ward at night: a tired, failing fluorescent.
+    this.flickering = [
+      { light: fill, base: 2.8 },
+      { light: rearFill, base: 1.4 },
+    ];
     // Adjustable table, support and foot-end hardware.
     box(0.55, 0.16, 1.2, steel, 0, 0.15, 0);
     box(0.28, 0.5, 0.45, steel, 0, 0.45, 0);
@@ -753,12 +758,17 @@ export class OperatingRoom {
     ctx.textAlign = "left";
     this.workstationTexture.needsUpdate = true;
   }
+  flickering: { light: THREE.PointLight; base: number }[] = [];
   update(
     dt: number,
     held: Tool | null,
     time: number,
     selected: Tool = "suction",
   ) {
+    const dip = Math.sin(time * 37) * Math.sin(time * 7.3) > 0.92 ? 0.2 : 1;
+    this.flickering.forEach((f, i) => {
+      f.light.intensity = f.base * dip * (0.94 + 0.06 * Math.sin(time * (3 + i)));
+    });
     const speed = 1.7 * dt,
       forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)),
       right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
