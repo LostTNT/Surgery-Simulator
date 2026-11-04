@@ -58,6 +58,22 @@ An independent Opus review read the code and screenshots and found real problems
 
 Not done from the review: blood hiding the whole field until suctioned, a brain that swells through the bone window, checkpoint edge cases, and number-key tool picking.
 
+## Round 3: first person, cinematic, real assets
+
+- **You are in the room.** The surgical field is now seen through a free first-person camera inside the full operating-room world (mouse look with pointer lock, `W A S D` to step and lean in, a crosshair where the instrument works). Your gloved hand and gowned forearm hold the instrument. `Z` looks through the microscope.
+- **No more tray trips.** Press 1, 2, 3 and the scrub nurse hands you the instrument and says its name.
+- **A real patient's head, not a plate.** Drape wraps the head and runs to the table; layered scalp edge (galea, dermis, fat, betadine-stained skin), layered bone (outer table, bloody diploe, inner table, dura edge), a dark depth, a skull clamp, one hard warm operating lamp with shadows in a dim teal room.
+- **Real assets:** a Poly Haven (CC0) operating-room HDRI for reflections and a Poly Haven (CC0) poplin fabric for the drape.
+- **Realism:** wetter, darker, salmon cortex with fine sparkle (not cling film), darker veins and brighter arteries, depth of field, bloom, chromatic aberration, film grain, a mood grade that drains colour but keeps the reds as the patient crashes, blood on the lens that suction or irrigation wipes, blood-stained instrument tips and glove.
+- **Graphics presets:** Low / Balanced / High / Ultra with automatic step-down.
+- **UI rebuilt:** one objective line, a slim vitals strip with a live ECG, an instrument belt, subtitles, no panels. Menu, briefing, grade and death screens restyled; fonts are IBM Plex Sans Condensed, Inter and JetBrains Mono.
+- **Cinematic arrival:** the camera glides through the room to your place at the table while the lamp stutters on and the story lines appear as subtitles.
+- **Two Opus reviews** found real bugs (permanent pointer-lock failure, entering the microscope pausing the game, the gaze dragging the tool, noclip camera, the blood pool blowing out white); all fixed.
+
+**Tried and not shipped:** a scanned human head (Lee Perry-Smith, CC BY 3.0) as the patient. It looks excellent on its own, but our surgical field is a flat plate and a real skull is a curved dome, so wrapping scalp, bone and brain around it means rebuilding that geometry. It is the biggest remaining step toward photorealism and needs its own round.
+
+**Honest ceiling:** the brain is a low-resolution public atlas surface and most of the room is procedural, so this is a convincing stylised game, not photographic. I could not measure GPU frame rate (the sandbox renders at about 1 fps), so the presets and auto step-down are untested on real hardware.
+
 ## Verification
 
 - **Unit tests: 79 passing** (`npm test`). New rules covered: vitals and collapse, grading, rupture, tether release, neck dissection, clip success/miss/pinch/blind, tumour feeders and motor zone, drain geometry and pressure, difficulty-gated twists.

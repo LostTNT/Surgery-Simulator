@@ -43,6 +43,10 @@ Each case opens with a short, quiet **arrival scene** in an eerily empty hospita
 
 If the browser cannot capture the mouse (touch, some embeds), the view stays at its default pose and the pointer aims directly.
 
+## Graphics settings
+
+Settings has four presets. **Low** and **Balanced** draw straight to the screen (Balanced adds the lamp shadow). **High** adds ambient occlusion, bloom, chromatic aberration and the mood colour grade. **Ultra** adds a real microscope depth of field, 4096 shadow maps and full pixel density: use it on a machine with a dedicated GPU. If the frame rate drops, the game steps down one preset by itself. A real operating-room HDRI lights the reflections on wet tissue and steel.
+
 ## Run it locally
 
 ```sh
@@ -69,6 +73,8 @@ Requires Node 22+ and a WebGL 2 browser. There is no backend and no API key.
 - Performance was measured with software rendering only; GPU frame rate is untested.
 
 ## Credits and licences
+
+Operating-room HDRI "Surgery" and the drape fabric are CC0 from [Poly Haven](https://polyhaven.com). See [`public/ASSETS.md`](public/ASSETS.md).
 
 The cortical surface is a modified FreeSurfer *fsaverage5* surface obtained through Nilearn. Required notices are in [`public/ASSETS.md`](public/ASSETS.md) and [`public/licenses/`](public/licenses). Instruments, tray, room, aneurysm, tumour and scan graphics are original to this project. No endorsement by MGH, FreeSurfer or Nilearn is claimed.
 
