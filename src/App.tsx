@@ -3,8 +3,11 @@ import { Engine, type Snapshot } from "./game/engine";
 import { CASES, createState, score, type CaseId } from "./game/simulation";
 import { GameHud } from "./ui/GameHud";
 import { Icon } from "./ui/Icons";
+import { Briefing } from "./ui/Briefing";
+import { Debrief } from "./ui/Debrief";
+import { DIFFICULTIES, type Difficulty } from "./game/vitals";
 
-type Overlay = "none" | "cases" | "guide" | "settings";
+type Overlay = "none" | "cases" | "briefing" | "guide" | "settings";
 const initial: Snapshot = {
   ...createState(),
   loaded: false,
@@ -62,7 +65,8 @@ export default function App() {
   const [view, setView] = useState<Snapshot>(initial),
     [overlay, setOverlay] = useState<Overlay>("none"),
     [progress, setProgress] = useState(savedProgress),
-    [selected, setSelected] = useState<CaseId>("lab");
+    [selected, setSelected] = useState<CaseId>("lab"),
+    [difficulty, setDifficulty] = useState<Difficulty>("attending");
   const playing = view.status === "running",
     ready = view.status === "ready",
     paused = view.status === "paused",
@@ -145,9 +149,14 @@ export default function App() {
     }
   }
   function chooseCase() {
+    setOverlay("briefing");
+  }
+  function scrubIn() {
+    engine.current?.setDifficulty(difficulty);
     engine.current?.setCase(selected);
     engine.current?.startSurgery();
     resumeAfterMenu.current = false;
+    returnToWorkstation.current = false;
     setOverlay("none");
   }
   function returnToRoom() {
@@ -156,7 +165,9 @@ export default function App() {
     engine.current?.startRoom();
   }
   const title =
-    overlay === "guide"
+    overlay === "briefing"
+      ? "Pre-operative briefing"
+      : overlay === "guide"
       ? "How to play"
       : overlay === "settings"
         ? "Make it your own."
@@ -251,18 +262,27 @@ export default function App() {
       )}
       {view.loaded && !view.error && menuOpen && (
         <section
-          className={`menu-panel ${overlay === "guide" ? "guide-panel" : ""} ${overlay === "cases" ? "workstation-panel" : ""}`}
+          className={`menu-panel ${overlay === "guide" ? "guide-panel" : ""} ${overlay === "cases" ? "workstation-panel" : ""} ${overlay === "briefing" ? "briefing-panel" : ""}`}
           role="dialog"
           aria-modal="true"
           aria-label={title}
         >
-          {overlay !== "none" && overlay !== "cases" && (
+          {overlay !== "none" && overlay !== "cases" && overlay !== "briefing" && (
             <button className="back-button" onClick={close}>
               <Icon name="arrow" size={16} />
               {returnToWorkstation.current ? "Back to workstation" : "Back"}
             </button>
           )}
-          {overlay !== "cases" && <h1>{title}</h1>}
+          {overlay !== "cases" && overlay !== "briefing" && <h1>{title}</h1>}
+          {overlay === "briefing" && (
+            <Briefing
+              caseId={selected}
+              difficulty={difficulty}
+              onDifficulty={setDifficulty}
+              onStart={scrubIn}
+              onBack={() => setOverlay("cases")}
+            />
+          )}
           {overlay === "none" && ready && (
             <>
               <p className="menu-description">
@@ -545,26 +565,7 @@ export default function App() {
                       ?.detail
                   : "Collection cleared. Field rinsed. Final inspection complete."}
               </p>
-              <div className="result-stats">
-                <div>
-                  <span>PRECISION</span>
-                  <strong>
-                    {score(view)}
-                    <small>/100</small>
-                  </strong>
-                </div>
-                <div>
-                  <span>PROCEDURE</span>
-                  <strong>{clock(view.elapsed)}</strong>
-                </div>
-                <div>
-                  <span>TISSUE INJURY</span>
-                  <strong>
-                    {Math.round(view.injury * 100)}
-                    <small>%</small>
-                  </strong>
-                </div>
-              </div>
+              <Debrief view={view} best={progress[view.caseId]}>
               <button
                 className="primary-button"
                 onClick={() => engine.current?.restart(failed && view.guided)}
@@ -584,20 +585,9 @@ export default function App() {
                   <Icon name="arrow" size={17} />
                 </button>
               )}
-              <div className="debrief">
-                {view.events
-                  .filter((e) =>
-                    ["stage", "complete", "injury"].includes(e.type),
-                  )
-                  .slice(-4)
-                  .map((e, i) => (
-                    <div key={i}>
-                      <time>{clock(e.time)}</time>
-                      <span>{e.detail}</span>
-                    </div>
-                  ))}
-              </div>
+              </Debrief>
               <p className="menu-footnote">
+                {DIFFICULTIES[view.difficulty].name} ·{" "}
                 {view.depthAssist ? "Assisted depth" : "Manual depth"} ·{" "}
                 {view.guided ? "Target guides enabled" : "Unassisted targets"}
               </p>

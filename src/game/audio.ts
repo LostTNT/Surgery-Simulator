@@ -12,16 +12,23 @@ export class SurgicalAudio {
     } else if (this.gain)
       this.gain.gain.setTargetAtTime(0, this.context!.currentTime, 0.03);
   }
-  update(time: number, active: boolean, tool: string, running: boolean) {
+  update(
+    time: number,
+    active: boolean,
+    tool: string,
+    running: boolean,
+    hr = 72,
+    critical = false,
+  ) {
     if (!this.enabled || !this.context) return;
     const ctx = this.context;
-    if (running && time - this.lastBeat > 0.83) {
+    if (running && time - this.lastBeat > 60 / Math.max(40, hr)) {
       this.lastBeat = time;
       const oscillator = ctx.createOscillator(),
         gain = ctx.createGain();
       oscillator.type = "sine";
-      oscillator.frequency.value = 780;
-      gain.gain.setValueAtTime(0.018, ctx.currentTime);
+      oscillator.frequency.value = critical ? 1180 : 780;
+      gain.gain.setValueAtTime(critical ? 0.03 : 0.018, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.075);
       oscillator.connect(gain);
       gain.connect(ctx.destination);

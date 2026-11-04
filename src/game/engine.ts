@@ -14,6 +14,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { BoneWindow, buildBurr } from "./access";
 import { SoftTissue } from "./soft-tissue";
 import { InstrumentTray, TRAY_TOOLS } from "./tool-tray";
+import { DIFFICULTIES, vitalsLevel, type Difficulty } from "./vitals";
 import {
   createState,
   tick,
@@ -632,7 +633,7 @@ export class Engine {
   }
   setCase(id: CaseId) {
     const old = this.state;
-    this.state = createState(id, old.guided, old.entry + 1);
+    this.state = createState(id, old.guided, old.entry + 1, old.difficulty);
     this.state.tool = "drill";
     this.accessPhase = "bone";
     this.bone?.reset();
@@ -702,6 +703,13 @@ export class Engine {
   }
   setGuided(value: boolean) {
     this.state.guided = value;
+    this.state.action = false;
+    this.emit();
+    this.dirty = true;
+  }
+  setDifficulty(value: Difficulty) {
+    this.state.difficulty = value;
+    this.state.guided = DIFFICULTIES[value].guided;
     this.state.action = false;
     this.emit();
     this.dirty = true;
@@ -1191,6 +1199,8 @@ export class Engine {
         this.state.action,
         this.state.tool,
         this.state.status === "running",
+        this.state.vitals.hr,
+        vitalsLevel(this.state.vitals) === "critical",
       );
       if (now - this.fpsAt > 1000) {
         this.fps =

@@ -1,3 +1,14 @@
+import { gradeAttempt } from "./grading.ts";
+import {
+  BASE_VITALS,
+  COLLAPSE_PRESSURE,
+  DIFFICULTIES,
+  MAX_BLOOD_LOSS_ML,
+  stepVitals,
+  type Difficulty,
+  type Vitals,
+} from "./vitals.ts";
+export type { Difficulty, Vitals };
 export type Tool = "suction" | "irrigation" | "bipolar" | "drill";
 export type Status = "ready" | "running" | "paused" | "success" | "failed";
 export type CaseId = "lab" | "case01" | "case02" | "case03";
@@ -60,6 +71,20 @@ export interface GameState {
   depth: number;
   zoom: number;
   entry: number;
+  difficulty: Difficulty;
+  vitals: Vitals;
+  /** Blood lost so far, in millilitres. */
+  bloodLoss: number;
+  /** Acute physiological stress from sudden events (0..1). */
+  shock: number;
+  /** Seconds the patient has spent below the collapse pressure. */
+  unstable: number;
+  minSys: number;
+  /** Latest anaesthetist remark; `id` increments for each new one. */
+  callout: { id: number; text: string; kind: Feedback["kind"]; at: number } | null;
+  said: string[];
+  complicationsTriggered: number;
+  complicationsHandled: number;
 }
 export interface ProcedureCase {
   name: string;
@@ -67,6 +92,8 @@ export interface ProcedureCase {
   difficulty: string;
   brief: string;
   duration: string;
+  /** Target time in seconds used for the pace grade. */
+  parSeconds: number;
   pockets: readonly (readonly [number, number, number])[];
   suctionRate: number;
   irrigationRate: number;
@@ -90,6 +117,7 @@ export const CASES: Record<CaseId, ProcedureCase> = {
     label: "Practice field",
     difficulty: "Practice",
     duration: "REPEATABLE",
+    parSeconds: 360,
     brief:
       "Open a bone window with the burr, then clear and rinse a fictional practice field. Assisted depth helps you learn the instruments.",
     pockets: introductoryPockets,
@@ -109,6 +137,7 @@ export const CASES: Record<CaseId, ProcedureCase> = {
     label: "Case 01",
     difficulty: "Introductory",
     duration: "PREPARED FIELD",
+    parSeconds: 300,
     brief:
       "Open the bone window, then remove a localized fluid collection with slower aspiration. Protect the soft surface and inspect the cleared field.",
     pockets: introductoryPockets,
@@ -128,6 +157,7 @@ export const CASES: Record<CaseId, ProcedureCase> = {
     label: "Case 02",
     difficulty: "Intermediate",
     duration: "BLEEDING CONTROL",
+    parSeconds: 270,
     brief:
       "Open the bone window and locate the marked bleeding source. Control it with bipolar before aspirating four fluid pockets, rinsing, and examining the field.",
     pockets: [
@@ -153,6 +183,7 @@ export const CASES: Record<CaseId, ProcedureCase> = {
     label: "Case 03",
     difficulty: "Intermediate",
     duration: "SIX-POCKET WASHOUT",
+    parSeconds: 420,
     brief:
       "Open the bone window, then clear six separated fluid pockets across the exposure. A slower rinse must reach 96% clarity before the final examination.",
     pockets: [
@@ -228,6 +259,7 @@ export function createState(
   caseId: CaseId = "lab",
   guided = true,
   entry = 0,
+  difficulty: Difficulty = "attending",
 ): GameState {
   const procedure = CASES[caseId];
   return {
@@ -266,7 +298,34 @@ export function createState(
     depth: 0.62,
     zoom: 1.13,
     entry,
+    difficulty,
+    vitals: { ...BASE_VITALS },
+    bloodLoss: 0,
+    shock: 0,
+    unstable: 0,
+    minSys: BASE_VITALS.sys,
+    callout: null,
+    said: [],
+    complicationsTriggered: 0,
+    complicationsHandled: 0,
   };
+}
+/** Anaesthetist remark. A key makes it fire once per attempt. */
+export function say(
+  s: GameState,
+  text: string,
+  kind: Feedback["kind"] = "neutral",
+  key?: string,
+) {
+  if (key) {
+    if (s.said.includes(key)) return;
+    s.said.push(key);
+  }
+  s.callout = { id: (s.callout?.id ?? 0) + 1, text, kind, at: s.elapsed };
+  logEvent(s, "callout", text);
+}
+export function hazard(s: GameState) {
+  return DIFFICULTIES[s.difficulty].hazard;
 }
 export function setFeedback(
   s: GameState,
@@ -361,10 +420,52 @@ export function fluidProgress(s: GameState) {
   return 1 - s.pockets.reduce((a, p) => a + p.remaining, 0) / s.pockets.length;
 }
 export function score(s: GameState) {
-  return Math.max(
-    0,
-    Math.round(100 - s.injury * 75 - (s.bleeding > 0.01 ? 15 : 0)),
+  return gradeAttempt(s, CASES[s.caseId].parSeconds).points;
+}
+/** Blood loss, monitor values, remarks and collapse. Returns true if the patient failed. */
+function stepPhysiology(s: GameState, dt: number): boolean {
+  const bleeding = s.bleeding > 0.02;
+  if (bleeding) s.bloodLoss += dt * s.bleeding * 5;
+  else s.shock = Math.max(0, s.shock - dt * 0.02);
+  s.vitals = stepVitals(
+    s.vitals,
+    { bleeding: s.bleeding, bloodLoss: s.bloodLoss, injury: s.injury, shock: s.shock },
+    dt,
   );
+  s.minSys = Math.min(s.minSys, s.vitals.sys);
+  const sys = Math.round(s.vitals.sys);
+  if (s.vitals.hr > 115) say(s, "Heart rate is climbing.", "warning", "hr115");
+  if (s.vitals.sys < 105)
+    say(s, "Blood pressure is trending down.", "warning", "bp105");
+  if (s.vitals.sys < 88)
+    say(s, `Pressure ${sys} and falling. I need that bleeding controlled.`, "danger", "bp88");
+  if (s.vitals.sys < COLLAPSE_PRESSURE + 8)
+    say(s, "We are about to lose the pressure. Act now.", "danger", "bp78");
+  if (
+    s.said.includes("bp88") &&
+    !bleeding &&
+    s.vitals.sys > 100 &&
+    !s.said.includes("recover")
+  )
+    say(s, "Pressure is recovering. Good work.", "good", "recover");
+  if (s.vitals.sys < COLLAPSE_PRESSURE) s.unstable += dt;
+  else s.unstable = Math.max(0, s.unstable - dt * 0.5);
+  const limit = DIFFICULTIES[s.difficulty].collapseSeconds;
+  if (s.unstable > limit * 0.5)
+    say(s, "Pressure is not coming back. Decide now.", "danger", "unstable-half");
+  if (s.unstable >= limit || s.bloodLoss >= MAX_BLOOD_LOSS_ML) {
+    s.status = "failed";
+    s.action = false;
+    logEvent(
+      s,
+      "failure",
+      s.bloodLoss >= MAX_BLOOD_LOSS_ML
+        ? "Too much blood was lost. The patient could not be stabilised."
+        : "The patient's blood pressure collapsed while the bleeding continued.",
+    );
+    return true;
+  }
+  return false;
 }
 export function tick(s: GameState, c: Contact, dt: number) {
   if (s.status !== "running" || !Number.isFinite(dt) || dt <= 0) return;
@@ -373,7 +474,7 @@ export function tick(s: GameState, c: Contact, dt: number) {
   if (s.action) cancelInspection(s);
   if (!c.inField) s.action = false;
   if (s.bleeding > 0.02) {
-    s.bleeding = Math.min(1, s.bleeding + dt * 0.006);
+    s.bleeding = Math.min(1, s.bleeding + dt * 0.006 * hazard(s));
     if (s.bleeding >= 1) {
       s.status = "failed";
       s.action = false;
@@ -381,6 +482,7 @@ export function tick(s: GameState, c: Contact, dt: number) {
       return;
     }
   }
+  if (stepPhysiology(s, dt)) return;
   const active = s.action && c.inField;
   if (active) s.activeTime += dt;
   const p = c.pocket >= 0 ? s.pockets[c.pocket] : null;
@@ -392,7 +494,7 @@ export function tick(s: GameState, c: Contact, dt: number) {
   if (physicalContact || thermalInjury) {
     cancelInspection(s);
     const rate = c.vessel ? 2.7 : thermalInjury ? 1.5 : 1.15;
-    s.injury = Math.min(1, s.injury + dt * rate);
+    s.injury = Math.min(1, s.injury + dt * rate * hazard(s));
     s.contactTime += dt;
     if (s.contactTime > 0.09 && s.bleedPosition === null) {
       s.bleedPosition = [...(c.injuryPoint ?? c.tip)];
@@ -409,7 +511,7 @@ export function tick(s: GameState, c: Contact, dt: number) {
       );
     }
     if (s.contactTime > 0.09) {
-      s.bleeding = Math.min(1, s.bleeding + dt * 0.16);
+      s.bleeding = Math.min(1, s.bleeding + dt * 0.16 * hazard(s));
       setFeedback(
         s,
         c.vessel ? "Vessel contact. Withdraw." : "Tissue contact. Withdraw.",
@@ -583,7 +685,7 @@ export function tick(s: GameState, c: Contact, dt: number) {
 export function checkpoint(s: GameState, saved?: GameState): GameState {
   const n = saved
     ? structuredClone(saved)
-    : createState(s.caseId, s.guided, s.entry + 1);
+    : createState(s.caseId, s.guided, s.entry + 1, s.difficulty);
   n.sound = s.sound;
   n.quality = s.quality;
   n.status = "running";

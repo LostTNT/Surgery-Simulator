@@ -8,6 +8,7 @@ import {
   TOOLS,
   type Tool,
 } from "../game/simulation";
+import { vitalsLevel } from "../game/vitals";
 import { Icon } from "./Icons";
 
 export function GameHud({
@@ -441,6 +442,16 @@ export function GameHud({
           ) : null}
         </>
       )}
+      {view.callout && view.elapsed - view.callout.at < 7 && view.status === "running" && (
+        <div
+          key={view.callout.id}
+          className={`callout ${view.callout.kind}`}
+          role="status"
+        >
+          <small>ANAESTHESIA</small>
+          <span>{view.callout.text}</span>
+        </div>
+      )}
       <footer className="hud-bottom">
         <div className="control-hints">
           <span>
@@ -474,19 +485,32 @@ export function GameHud({
             <strong>{current || "Choose a case at the workstation"}</strong>
           </div>
         ) : (
-          <div className="vitals" aria-label="Simulated patient monitoring">
-            <svg viewBox="0 0 48 28">
+          <div
+            className={`vitals level-${vitalsLevel(view.vitals)}`}
+            aria-label="Simulated patient monitoring"
+            style={{ ["--beat" as string]: `${60 / Math.max(40, view.vitals.hr)}s` }}
+          >
+            <svg viewBox="0 0 48 28" className="ecg">
               <path d="M0 16h9l3-4 3 4 3-13 4 24 4-14 3 3h19" />
             </svg>
-            <strong>
-              {view.bleeding > 0.6 ? 86 : 72}
-              <small> bpm</small>
-            </strong>
-            <i />
-            <span>O₂</span>
-            <strong>
-              99<small>%</small>
-            </strong>
+            <div className="vital">
+              <small>HR</small>
+              <strong>{Math.round(view.vitals.hr)}</strong>
+            </div>
+            <div className="vital">
+              <small>BP</small>
+              <strong>
+                {Math.round(view.vitals.sys)}/{Math.round(view.vitals.dia)}
+              </strong>
+            </div>
+            <div className="vital">
+              <small>SpO₂</small>
+              <strong>{Math.round(view.vitals.spo2)}%</strong>
+            </div>
+            <div className="vital">
+              <small>LOSS</small>
+              <strong>{Math.round(view.bloodLoss)} ml</strong>
+            </div>
             {view.injury > 0.01 && (
               <span className="injury-readout">
                 Tissue injury {Math.round(view.injury * 100)}%
