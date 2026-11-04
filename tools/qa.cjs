@@ -72,29 +72,21 @@ const operationTimeout = Number(process.env.SUTURE_OPERATION_TIMEOUT || "120000"
     });
   }
 
-  async function pickTool(name, previous) {
-    const pick = page.getByRole("button", { name: `Pick up ${name}`, exact: true });
-    if (!(await page.locator(".tray-controls").isVisible()))
-      await page.getByRole("button", { name: /Instrument tray/ }).click();
-    await pick.waitFor({ state: "visible", timeout: 60000 });
-    if (previous) {
-      assert.ok(await pick.isDisabled(), "Place the held instrument before collecting another");
-      await page.getByRole("button", { name: new RegExp(`^Place ${previous}`) }).click();
-    }
-    await pick.click();
+  async function pickTool(name) {
+    // The scrub nurse hands over any instrument on the belt; wait for the swap to finish.
+    await page.getByRole("button", { name: `Pick up ${name}`, exact: true }).click();
+    await page.locator(`button[aria-label="Pick up ${name}"][aria-pressed="true"]`).waitFor({ timeout: 120000 });
   }
 
   async function assertExaminationBlocked(reason) {
-    const examine = page.getByRole("button", { name: /^Examine field/ });
-    assert.ok(await examine.isDisabled(), reason);
-    // The E shortcut must obey the same prerequisites as the visible button.
+    assert.equal(await page.getByRole("button", { name: /EXAMINE FIELD/ }).count(), 0, reason);
+    // The E shortcut must obey the same prerequisites as the prompt.
     await page.keyboard.press("e");
-    assert.equal(await page.locator(".examine-panel.is-examining").count(), 0);
     assert.equal(await page.getByRole("heading", { name: "A controlled finish.", exact: true }).count(), 0);
   }
 
   async function waitForOperation(operation, label) {
-    const progressText = async () => (await page.locator(".objective, .examine-panel").allInnerTexts()).join("\n");
+    const progressText = async () => (await page.locator(".obj, .centre-prompt").allInnerTexts()).join("\n");
     for (let attempt = 0; attempt < 2; attempt++) {
       const before = await progressText();
       try {
@@ -132,9 +124,6 @@ const operationTimeout = Number(process.env.SUTURE_OPERATION_TIMEOUT || "120000"
     await page.getByRole("button", { name: "Resident" }).click();
     await page.getByRole("button", { name: "Scrub in", exact: true }).click();
     await page.getByRole("button", { name: "Skip intro", exact: true }).click();
-    await page
-      .getByRole("button", { name: "Pick up Bone burr", exact: true })
-      .click();
     await page.locator(".bone-guide line").first().waitFor();
     assert.equal(await page.title(), "SUTURE — Surgical simulation");
     assert.equal(new URL(page.url()).origin, new URL(target).origin);
@@ -151,11 +140,8 @@ const operationTimeout = Number(process.env.SUTURE_OPERATION_TIMEOUT || "120000"
           }),
         );
       }, null, { timeout: 15000 });
-      const depthBox = await page.locator(".depth-control").boundingBox();
-      assert.ok(depthBox && depthBox.height < 180, "Portrait depth controls must stay compact");
-      assert.ok(depthBox.y >= 0 && depthBox.y + depthBox.height <= 844);
       await page.screenshot({ path: artifact("mobile-held-burr") });
-      console.log("PASS portrait held-burr field: guide visible and depth controls compact");
+      console.log("PASS portrait held-burr field: guide visible");
       await page.setViewportSize({ width: 960, height: 640 });
       // Wait for the rendered guide to return from portrait to desktop geometry.
       await page.waitForFunction(() => {
@@ -197,13 +183,13 @@ const operationTimeout = Number(process.env.SUTURE_OPERATION_TIMEOUT || "120000"
       if (i % 20 === 0) console.log("Cut point", i);
     }
     await page.mouse.up();
-    await page.getByRole("button", { name: "Lift bone flap" }).click();
+    await page.getByRole("button", { name: /LIFT BONE FLAP/ }).click();
     await page
-      .getByRole("button", { name: /Place Bone burr/ })
-      .waitFor({ timeout: 60000 });
+      .getByRole("button", { name: "Pick up Suction", exact: true })
+      .waitFor({ timeout: 120000 });
     if (caseId === "case02") {
-      await pickTool("Bipolar", "Bone burr");
-      const source = page.locator(".bleed-marker, .bleeding-marker");
+      await pickTool("Bipolar");
+      const source = page.locator(".bleed-ring");
       await source.waitFor({ state: "visible" });
       await assertExaminationBlocked("Uncontrolled bleeding blocks examination");
       await page.screenshot({ path: artifact("bleeding-source") });
@@ -213,17 +199,17 @@ const operationTimeout = Number(process.env.SUTURE_OPERATION_TIMEOUT || "120000"
       await waitForOperation((timeout) => source.waitFor({ state: "hidden", timeout }), "Source control");
       await page.mouse.up();
       console.log("Bleeding source controlled");
-      await pickTool("Suction", "Bipolar");
+      await pickTool("Suction");
     } else {
-      await pickTool("Suction", "Bone burr");
+      await pickTool("Suction");
     }
-    await page.locator(".target-marker").first().waitFor();
+    await page.locator(".target-ring").first().waitFor();
     await assertExaminationBlocked("Remaining pockets block examination");
     await page.screenshot({ path: artifact("exposed") });
-    const pocketCount = await page.locator(".target-marker").count();
+    const pocketCount = await page.locator(".target-ring").count();
     assert.equal(pocketCount, selectedCase.pockets);
     for (let i = 0; i < pocketCount; i++) {
-      const marker = page.locator(".target-marker").nth(i);
+      const marker = page.locator(".target-ring").nth(i);
       const point = await markerPoint(marker);
       await page.mouse.move(point.x, point.y);
       if (i === 0) await page.mouse.down();
@@ -231,7 +217,7 @@ const operationTimeout = Number(process.env.SUTURE_OPERATION_TIMEOUT || "120000"
       await waitForOperation((timeout) => page.waitForFunction(
         (i) =>
           document
-            .querySelectorAll(".target-marker")
+            .querySelectorAll(".target-ring")
             [i]?.classList.contains("cleared"),
         i,
         { timeout },
@@ -244,33 +230,21 @@ const operationTimeout = Number(process.env.SUTURE_OPERATION_TIMEOUT || "120000"
       .waitFor();
     await assertExaminationBlocked("Cleared pockets still require the rinse target");
     console.log("Examination correctly blocked until rinse target is met");
-    const checklist = page.getByRole("region", { name: "Final examination checklist" });
-    assert.ok((await checklist.innerText()).includes(`/${selectedCase.clarity}% clarity`));
-    await pickTool("Irrigation", "Suction");
-    await page.locator(".target-marker").first().waitFor();
+    await pickTool("Irrigation");
+    await page.locator(".target-ring").first().waitFor();
     await page.mouse.move(480, 320);
     await page.mouse.down();
     console.log(`Rinsing to ${selectedCase.clarity}% clarity`);
-    await waitForOperation((timeout) => page.waitForFunction(() => {
-      const button = document.querySelector(".examine-button");
-      return button && !button.disabled;
-    }, null, { timeout }), "Rinse");
+    await waitForOperation((timeout) => page.getByRole("button", { name: /EXAMINE FIELD/ }).waitFor({ timeout }), "Rinse");
     await page.mouse.up();
     // Resting after irrigation must leave the field awaiting a deliberate check.
     await page.waitForTimeout(3500);
-    assert.ok(await page.getByRole("button", { name: /^Examine field/ }).isEnabled());
-    assert.equal(await page.locator(".examine-panel.is-examining").count(), 0);
+    assert.ok(await page.getByRole("button", { name: /EXAMINE FIELD/ }).isEnabled());
     assert.equal(await page.getByRole("heading", { name: "A controlled finish.", exact: true }).count(), 0);
-    assert.ok((await checklist.innerText()).includes(`${pocketCount}/${pocketCount} pockets cleared`));
     await page.screenshot({ path: artifact("ready-to-examine") });
     console.log("Ready to examine; releasing irrigation did not auto-start inspection");
-    await page.getByRole("button", { name: /^Examine field/ }).click();
-    await page.locator(".examine-panel.is-examining").waitFor();
-    await page.waitForFunction(() => {
-      const button = document.querySelector(".examine-button");
-      return button && /Examining · [1-9]\d*%/.test(button.textContent);
-    }, null, { timeout: 15000 });
-    assert.ok(await page.locator(".examine-button").isDisabled());
+    await page.getByRole("button", { name: /EXAMINE FIELD/ }).click();
+    await page.waitForFunction(() => /EXAMINING [1-9]\d*%/.test(document.querySelector(".centre-prompt")?.textContent ?? ""), null, { timeout: 60000 });
     await page.screenshot({ path: artifact("examining") });
     console.log("Explicit examination progress visible");
     await waitForOperation((timeout) => page

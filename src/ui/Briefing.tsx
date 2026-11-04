@@ -5,9 +5,9 @@ import { Icon } from "./Icons";
 import { ScanImage } from "./ScanImage";
 
 const CONTROLS: Record<string, [string, string][]> = {
-  washout: [["MOUSE", "Aim"], ["HOLD", "Operate"], ["T", "Tool tray"], ["SCROLL", "Depth"], ["SHIFT", "Fine"]],
-  aneurysm: [["MOUSE", "Aim"], ["HOLD", "Operate"], ["T", "Tool tray"], ["A / D", "Rotate clip"], ["SHIFT", "Fine"]],
-  tumor: [["MOUSE", "Aim"], ["HOLD", "Operate"], ["T", "Tool tray"], ["SCROLL", "Depth"], ["SHIFT", "Fine"]],
+  washout: [["MOUSE", "Look & aim"], ["W A S D", "Move & lean"], ["HOLD", "Operate"], ["1-3", "Instrument"], ["Z", "Microscope"]],
+  aneurysm: [["MOUSE", "Look & aim"], ["W A S D", "Move & lean"], ["HOLD", "Operate"], ["1-3", "Instrument"], ["WHEEL", "Rotate clip"]],
+  tumor: [["MOUSE", "Look & aim"], ["W A S D", "Move & lean"], ["HOLD", "Operate"], ["1-2", "Instrument"], ["Z", "Microscope"]],
   drain: [["MOUSE", "Aim"], ["SPACE", "Advance"], ["R", "Withdraw"], ["E", "Secure"]],
 };
 export function Briefing({

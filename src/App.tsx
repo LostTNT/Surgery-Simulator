@@ -573,15 +573,15 @@ export default function App() {
                 {[
                   [
                     "MOVE",
-                    "Aim directly at the numbered fluid pockets. The instrument follows your pointer.",
+                    "Click the view to take control: mouse looks and aims, W A S D walks and leans in over the patient. The crosshair is where the instrument works.",
                   ],
                   [
                     "HOLD",
                     "Hold the left mouse button (or touch and hold) to use the selected instrument. Release to lift.",
                   ],
                   [
-                    "T / 1–4",
-                    "T pans to the instrument tray. Place the held tool before picking up another. Click a tool, or use 1–4 at the tray.",
+                    "1–4 / Z",
+                    "Press 1, 2, 3 (or click the belt) and the scrub nurse hands you that instrument. Z looks through the microscope.",
                   ],
                   [
                     "SCROLL",

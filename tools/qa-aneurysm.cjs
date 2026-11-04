@@ -29,11 +29,9 @@ const dpr = Number(process.env.SUTURE_DPR || "0.5");
   };
   const screen = (x, y) =>
     page.evaluate(([x, y]) => { const e = window.__SUTURE__; return e.project(x, y, e.surface(x, y)); }, [x, y]);
-  const swap = async (placing, picking) => {
-    await page.keyboard.press("t");
-    await page.getByRole("button", { name: new RegExp(`^Place ${placing}`) }).waitFor();
-    await page.getByRole("button", { name: new RegExp(`^Place ${placing}`) }).click();
+  const swap = async (_placing, picking) => {
     await page.getByRole("button", { name: `Pick up ${picking}`, exact: true }).click();
+    await page.locator(`button[aria-label="Pick up ${picking}"][aria-pressed="true"]`).waitFor({ timeout: 120000 });
   };
   try {
     await page.goto(target, { waitUntil: "domcontentloaded", timeout: 90000 });
@@ -48,7 +46,6 @@ const dpr = Number(process.env.SUTURE_DPR || "0.5");
     await page.getByRole("button", { name: "Resident" }).click();
     await page.getByRole("button", { name: "Scrub in", exact: true }).click();
     await page.getByRole("button", { name: "Skip intro", exact: true }).click();
-    await page.getByRole("button", { name: "Pick up Bipolar", exact: true }).click();
     await page.waitForTimeout(2500);
     const a = await an();
     for (let i = 0; i < a.bridges.length; i++) {
@@ -83,7 +80,7 @@ const dpr = Number(process.env.SUTURE_DPR || "0.5");
     await until("alignment", async () => {
       const err = await page.evaluate(() => { const s = window.__SUTURE__.state; return s.clipAngle - s.aneurysm.axis; });
       if (Math.abs(err) < 0.25) return true;
-      await page.keyboard.press(err > 0 ? "d" : "a");
+      await page.keyboard.press(err > 0 ? "ArrowRight" : "ArrowLeft");
       return false;
     });
     await page.screenshot({ path: "/tmp/suture-qa/case04-aligned.png" });
@@ -93,7 +90,7 @@ const dpr = Number(process.env.SUTURE_DPR || "0.5");
       const cur = await an();
       if (cur.phase === "clipped") return true;
       const err = await page.evaluate(() => { const s = window.__SUTURE__.state; return s.clipAngle - s.aneurysm.axis; });
-      if (Math.abs(err) > 0.2) await page.keyboard.press(err > 0 ? "d" : "a");
+      if (Math.abs(err) > 0.2) await page.keyboard.press(err > 0 ? "ArrowRight" : "ArrowLeft");
       await page.mouse.move(p.x, p.y);
       await page.mouse.down();
       await page.waitForTimeout(4000);
@@ -105,12 +102,8 @@ const dpr = Number(process.env.SUTURE_DPR || "0.5");
     });
     console.log("Clipped");
     await page.screenshot({ path: "/tmp/suture-qa/case04-clipped.png" });
-    await page.keyboard.press("t");
-    await page.getByRole("button", { name: /^Place Aneurysm clip/ }).click();
-    await page.keyboard.press("t");
-    await page.getByRole("button", { name: /^Examine field/ }).waitFor();
-    await until("examine ready", async () => !(await page.getByRole("button", { name: /^Examine field/ }).isDisabled()));
-    await page.getByRole("button", { name: /^Examine field/ }).click();
+    await until("examine ready", async () => (await page.getByRole("button", { name: /EXAMINE FIELD/ }).count()) > 0);
+    await page.getByRole("button", { name: /EXAMINE FIELD/ }).click();
     await page.getByRole("heading", { name: "A controlled finish." }).waitFor({ timeout: 300000 });
     await page.screenshot({ path: "/tmp/suture-qa/case04-result.png" });
     assert.ok(await page.getByText(/OPERATION COMPLETE/).isVisible());
