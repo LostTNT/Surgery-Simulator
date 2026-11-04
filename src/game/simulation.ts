@@ -9,6 +9,7 @@ import {
   type Vitals,
 } from "./vitals.ts";
 export type { Difficulty, Vitals };
+export type Quality = "low" | "balanced" | "high" | "ultra";
 export type Tool = "suction" | "irrigation" | "bipolar" | "drill" | "clip";
 export type Status = "ready" | "running" | "paused" | "success" | "failed";
 export type CaseId = "lab" | "case01" | "case02" | "case03" | "case04" | "case05" | "case06";
@@ -227,7 +228,7 @@ export interface GameState {
   clearance: number;
   action: boolean;
   sound: boolean;
-  quality: "high" | "balanced";
+  quality: Quality;
   showAnatomy: boolean;
   depth: number;
   zoom: number;

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
 import { MeshBVH, acceleratedRaycast } from "three-mesh-bvh";
 import { buildField, type FieldObjects } from "./scene";
 import { SurgicalAudio } from "./audio";
@@ -14,7 +15,7 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 import { BokehPass } from "three/addons/postprocessing/BokehPass.js";
 import { addGlove, latex as gloveLatex } from "./gloves";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
-import { gradeShader } from "./grade";
+import { gradeShader, makeSplat } from "./grade";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { BoneWindow, buildBurr } from "./access";
 import { SoftTissue } from "./soft-tissue";
@@ -40,11 +41,12 @@ import {
   TOOLS,
   type GameState,
   type CaseId,
+  type Quality,
   type Tool,
   type Contact,
 } from "./simulation";
 
-const CLEAN_GLOVE = new THREE.Color(0xe0d0ae),
+const CLEAN_GLOVE = new THREE.Color(0xd9c39a),
   BLOODY_GLOVE = new THREE.Color(0x6b2a24);
 const DEATH = /pressure collapsed|blood was lost|herniat|bleeding source/i;
 export interface Snapshot extends GameState {
@@ -132,6 +134,7 @@ export class Engine {
   trayView = false;
   /** A scrub-nurse handoff in progress: the old tool drops out, the new one rises in. */
   lamp: THREE.SpotLight | null = null;
+  pmrem!: THREE.PMREMGenerator;
   /** A press made while the instrument is still being handed over starts working once it arrives. */
   pendingPress = false;
   lastClient = { x: 0, y: 0 };
@@ -183,6 +186,22 @@ export class Engine {
   get canLock() {
     return typeof navigator !== "undefined" && !navigator.webdriver && !this.lockFailed;
   }
+  /** Browsers refuse a new lock for about a second after Esc; that must not disable mouse look for good. */
+  markLockFailed() {
+    this.lockFailed = true;
+    setTimeout(() => {
+      this.lockFailed = false;
+      this.emit();
+    }, 1500);
+  }
+  /** Give the mouse back on purpose, without the unlock being treated as the player pressing Esc. */
+  releaseLock() {
+    if (!document.pointerLockElement) return;
+    this.releasing = true;
+    document.exitPointerLock();
+  }
+  releasing = false;
+  mouseDown = false;
   resetCamera() {
     this.fp.pos.set(0, -2.3, 5.8);
     this.fp.yaw = Math.PI / 2;
@@ -197,6 +216,8 @@ export class Engine {
   /** 0..1 spike that smears the lens when the surgeon hurts the patient. */
   jolt = 0;
   lastHurt = "";
+  /** 0..1 blood on the lens; wiped by suction or irrigation. */
+  lensBlood = 0;
   swap: { t: number; to: Tool; done: boolean } | null = null;
   trayPan = 0;
   tray: InstrumentTray | null = null;
@@ -241,15 +262,15 @@ export class Engine {
     this.bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.34, 0.35, 0.92);
     this.composer.addPass(this.bloom);
     this.grade = new ShaderPass(gradeShader);
+    this.grade.uniforms.tSplat.value = new THREE.CanvasTexture(makeSplat());
     this.composer.addPass(this.grade);
     this.composer.addPass(new OutputPass());
     this.camera.up.set(0, 0, 1);
     this.updateCamera();
-    const pmrem = new THREE.PMREMGenerator(this.renderer),
-      room = new RoomEnvironment();
-    const env = pmrem.fromScene(room, 0.04);
+    this.pmrem = new THREE.PMREMGenerator(this.renderer);
+    const room = new RoomEnvironment();
+    const env = this.pmrem.fromScene(room, 0.04);
     this.scene.environment = env.texture;
-    pmrem.dispose();
     room.dispose();
     this.cleanups.push(() => env.dispose());
     this.scene.environmentIntensity = 0.2;
@@ -302,6 +323,7 @@ export class Engine {
     if (this.swap || tool === this.heldTool || !this.belt.includes(tool)) return;
     cancelInspection(this.state);
     this.freezeInput();
+    if (this.mouseDown) this.pendingPress = true;
     this.swap = { t: 0, to: tool, done: false };
   }
   snapshot(): Snapshot {
@@ -411,6 +433,17 @@ export class Engine {
         new THREE.TextureLoader().loadAsync(`${assetBase}textures/bone.webp`),
       ]);
       if (this.disposed) return;
+      try {
+        // A real operating-room HDRI (Poly Haven, CC0) gives wet tissue and steel true reflections.
+        const hdr = await new RGBELoader().loadAsync(`${assetBase}env/surgery_1k.hdr`);
+        hdr.mapping = THREE.EquirectangularReflectionMapping;
+        const env = this.pmrem.fromEquirectangular(hdr);
+        this.scene.environment = env.texture;
+        this.scene.environmentIntensity = 0.55;
+        hdr.dispose();
+      } catch {
+        /* the built-in room environment stays */
+      }
       anatomy.scene.updateMatrixWorld(true);
       corticalTexture.colorSpace = THREE.SRGBColorSpace;
       corticalTexture.anisotropy = 8;
@@ -585,13 +618,16 @@ export class Engine {
     if (move.lengthSq() === 0) return;
     move.normalize().multiplyScalar((this.precision ? 1.1 : 3.4) * dt);
     const p = this.fp.pos.add(move);
-    p.x = THREE.MathUtils.clamp(p.x, -7, 7);
-    p.y = THREE.MathUtils.clamp(p.y, -9, 9);
-    p.z = THREE.MathUtils.clamp(p.z, 1.0, 9);
-    // Stay out of the head itself.
-    const centre = new THREE.Vector3(0, 0, 0.1),
-      away = p.clone().sub(centre);
-    if (away.length() < 1.9) p.copy(centre).add(away.setLength(1.9));
+    // You are standing at the head of the table: a band of positions around the patient's head.
+    p.z = THREE.MathUtils.clamp(p.z, 3.4, 7.4);
+    const radius = Math.hypot(p.x, p.y);
+    const azimuth = Math.atan2(p.y, p.x);
+    const side = -Math.PI / 2;
+    const swing = THREE.MathUtils.clamp(Math.atan2(Math.sin(azimuth - side), Math.cos(azimuth - side)), -1.0, 1.0);
+    const r = THREE.MathUtils.clamp(radius, 0.6, 8.2);
+    p.x = Math.cos(side + swing) * r;
+    p.y = Math.sin(side + swing) * r;
+    this.fp.pitch = THREE.MathUtils.clamp(this.fp.pitch, -1.5, 0.2);
     this.updateCamera();
   }
   resize() {
@@ -612,11 +648,9 @@ export class Engine {
     try {
       const result = this.renderer.domElement.requestPointerLock?.();
       if (result instanceof Promise)
-        void result.catch(() => {
-          this.lockFailed = true;
-        });
+        void result.catch(() => this.markLockFailed());
     } catch {
-      this.lockFailed = true;
+      this.markLockFailed();
     }
   }
   freezeInput() {
@@ -650,7 +684,7 @@ export class Engine {
     this.resetCamera();
     if (!this.heldTool || !this.belt.includes(this.heldTool)) this.equipDefault();
     this.room?.keys.clear();
-    if (document.pointerLockElement) document.exitPointerLock();
+    this.releaseLock();
     this.start();
   }
   startRoom() {
@@ -661,7 +695,7 @@ export class Engine {
     if (!this.loaded || this.location !== "room") return;
     this.freezeInput();
     this.room?.keys.clear();
-    if (document.pointerLockElement) document.exitPointerLock();
+    this.releaseLock();
     this.onWorkstationRequest();
   }
   setDepthAssist(value: boolean) {
@@ -706,7 +740,7 @@ export class Engine {
     this.emit();
     return true;
   }
-  aimAt(clientX: number, clientY: number) {
+  aimAt(clientX: number, clientY: number, strict = false) {
     const r = this.renderer.domElement.getBoundingClientRect();
     this.ray.setFromCamera(
       new THREE.Vector2(
@@ -716,6 +750,7 @@ export class Engine {
       this.camera,
     );
     if (this.accessPhase === "bone" && this.bone) {
+      if (strict && this.ray.ray.direction.z > -0.15) return; // looking sideways: nothing to cut
       // Aim on the original convex shell so a deepening groove cannot pull
       // the pointer sideways. Working depth follows the carved surface.
       const p = new THREE.Vector3();
@@ -733,6 +768,7 @@ export class Engine {
     }
     const aimMesh = this.accessPhase === "bone" ? this.bone?.mesh : this.brain;
     const hit = aimMesh ? this.ray.intersectObject(aimMesh, false)[0] : null;
+    if (strict && !hit) return; // looking away from the field: the tool stays where it was
     const point =
       hit?.point ??
       this.ray.ray.intersectPlane(
@@ -748,12 +784,15 @@ export class Engine {
     pause(this.state);
     this.freezeInput();
     this.room?.keys.clear();
-    if (document.pointerLockElement) document.exitPointerLock();
+    this.releaseLock();
     this.emit();
     this.dirty = true;
   }
   resume() {
-    if (this.state.status === "paused") this.start();
+    if (this.state.status !== "paused") return;
+    this.start();
+    // The Resume click is a user gesture, so the mouse can be captured again straight away.
+    if (this.location === "surgery" && this.canLock) this.lockPointer();
   }
   toggleTray() {
     // The scrub nurse hands you instruments now; there is no tray trip in surgery.
@@ -799,7 +838,7 @@ export class Engine {
       }
       this.trayView = false;
       this.room.keys.clear();
-      if (document.pointerLockElement) document.exitPointerLock();
+      this.releaseLock();
       this.state.action = false;
       this.pointer = null;
       logEvent(this.state, "approach", "Entered stable surgical view");
@@ -835,6 +874,7 @@ export class Engine {
     const old = this.state;
     this.state = createState(id, old.guided, old.entry + 1, old.difficulty);
     this.prepareAccess();
+    this.scope = false;
     this.softTissue?.reset();
     this.depthOffset = 0;
     this.stageSnapshots.clear();
@@ -854,7 +894,7 @@ export class Engine {
       this.room.keys.clear();
       this.room.updateCamera();
     }
-    if (document.pointerLockElement) document.exitPointerLock();
+    this.releaseLock();
     this.tip.set(0.55, -0.3, 0.62);
     this.target.copy(this.tip);
     this.previous.copy(this.tip);
@@ -906,7 +946,7 @@ export class Engine {
   }
   aimCentre() {
     const r = this.renderer.domElement.getBoundingClientRect();
-    this.aimAt(r.left + r.width / 2, r.top + r.height / 2);
+    this.aimAt(r.left + r.width / 2, r.top + r.height / 2, true);
   }
   drainAim(angle: number) {
     const d = this.state.drain;
@@ -932,16 +972,32 @@ export class Engine {
     this.emit();
     this.dirty = true;
   }
-  setQuality(value: "high" | "balanced", automatic = false) {
+  /**
+   * Graphics presets. Low and Balanced draw straight to screen; High adds ambient
+   * occlusion, bloom and the colour grade; Ultra adds a true microscope depth of field,
+   * sharper shadows and full pixel density.
+   */
+  setQuality(value: Quality, automatic = false) {
     this.autoQuality = automatic;
     this.state.quality = value;
-    this.renderer.setPixelRatio(
-      Math.min(window.devicePixelRatio, value === "high" ? 1.6 : 0.8),
-    );
-    this.renderer.shadowMap.enabled = value === "high";
-    this.composer.setPixelRatio(
-      Math.min(window.devicePixelRatio, value === "high" ? 1.6 : 0.8),
-    );
+    const dpr = window.devicePixelRatio || 1,
+      ratio = { low: 0.75, balanced: 1, high: 1.5, ultra: 2 }[value];
+    this.renderer.setPixelRatio(Math.min(dpr, ratio));
+    this.composer.setPixelRatio(Math.min(dpr, ratio));
+    this.renderer.shadowMap.enabled = value !== "low";
+    if (this.lamp) {
+      const size = value === "ultra" ? 4096 : value === "high" ? 2048 : 1024;
+      if (this.lamp.shadow.mapSize.x !== size) {
+        this.lamp.shadow.mapSize.set(size, size);
+        this.lamp.shadow.map?.dispose();
+        this.lamp.shadow.map = null;
+      }
+      this.lamp.shadow.radius = value === "ultra" ? 4 : 3;
+    }
+    this.occlusion.enabled = true;
+    this.bokeh.enabled = value === "ultra";
+    this.bloom.enabled = true;
+    this.slowFrames = 0;
     this.resize();
     this.emit();
   }
@@ -1024,6 +1080,7 @@ export class Engine {
           return;
         }
         this.lastClient = { x: e.clientX, y: e.clientY };
+        this.mouseDown = true;
         if (this.swap) {
           this.pendingPress = true;
           return;
@@ -1059,17 +1116,20 @@ export class Engine {
       }
     }) as EventListener);
     listen(document, "pointerlockerror", (() => {
-      this.lockFailed = true;
+      this.markLockFailed();
       this.emit();
     }) as EventListener);
     listen(document, "pointerlockchange", (() => {
       this.locked = document.pointerLockElement === canvas;
-      if (this.state.status === "running" && !document.pointerLockElement && this.canLock)
+      const intentional = this.releasing;
+      this.releasing = false;
+      if (!intentional && this.state.status === "running" && !document.pointerLockElement && this.canLock)
         this.pause();
       this.emit();
     }) as EventListener);
     listen(window, "pointerup", (() => {
       this.pendingPress = false;
+      this.mouseDown = false;
       this.state.action = false;
     }) as EventListener);
     listen(canvas, "lostpointercapture", (() => {
@@ -1187,7 +1247,7 @@ export class Engine {
         if (tool) this.swapTool(tool);
       }
       if (e.key.toLowerCase() === "h") this.toggleAnatomy();
-      if (e.key.toLowerCase() === "q") this.setDepthAssist(!this.depthAssist);
+      if (e.key.toLowerCase() === "m") this.setDepthAssist(!this.depthAssist);
       if (e.key.toLowerCase() === "f" && !this.depthAssist)
         this.target.z = Math.max(
           -0.55,
@@ -1419,6 +1479,7 @@ export class Engine {
         if (id !== this.lastHurt) {
           this.lastHurt = id;
           this.jolt = 1;
+          if (last.type === "rupture" || this.state.bleeding > 0.3) this.lensBlood = 1;
         }
       }
       let swapOffset = 0;
@@ -1561,7 +1622,7 @@ export class Engine {
           this.location === "room" && this.room
             ? this.room.camera
             : this.camera;
-        if (this.state.quality === "high") {
+        if (this.state.quality === "high" || this.state.quality === "ultra") {
           this.beauty.scene = scene;
           this.beauty.camera = camera;
           this.occlusion.scene = scene;
@@ -1584,6 +1645,10 @@ export class Engine {
           const g = this.grade.uniforms as Record<string, { value: number }>;
           g.uCrisis.value += (Math.max(0, crisis) - g.uCrisis.value) * 0.05;
           g.uTime.value = now / 1000;
+          if (this.state.action && (this.state.tool === "suction" || this.state.tool === "irrigation"))
+            this.lensBlood = Math.max(0, this.lensBlood - 0.02);
+          else this.lensBlood = Math.max(0, this.lensBlood - 0.0015);
+          g.uBlood.value = this.lensBlood;
           g.uAberration.value = 0.0012 + g.uCrisis.value * 0.0035 + (this.jolt > 0 ? 0.006 * this.jolt : 0);
           this.jolt = Math.max(0, this.jolt - 0.06);
           const u = this.occlusion.ssaoMaterial.uniforms;
@@ -1617,13 +1682,13 @@ export class Engine {
             : 60;
         this.frameCount = 0;
         this.fpsAt = now;
-        if (
-          this.autoQuality &&
-          this.state.status === "running" &&
-          this.state.quality === "high"
-        ) {
-          this.slowFrames = this.fps < 25 ? this.slowFrames + 1 : 0;
-          if (this.slowFrames >= 2) this.setQuality("balanced", true);
+        if (this.autoQuality && this.state.status === "running" && this.state.quality !== "low") {
+          // Step down one preset at a time when the frame rate collapses.
+          this.slowFrames = this.fps < 24 ? this.slowFrames + 1 : 0;
+          if (this.slowFrames >= 3) {
+            const order: Quality[] = ["low", "balanced", "high", "ultra"];
+            this.setQuality(order[order.indexOf(this.state.quality) - 1], true);
+          }
         }
       }
       if (now - this.publishAt > 100) {

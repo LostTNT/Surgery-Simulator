@@ -36,7 +36,7 @@ Each case opens with a short, quiet **arrival scene** in an eerily empty hospita
 | `1` `2` `3` | Ask the scrub nurse for an instrument (she says its name) |
 | `Z` | Look through the surgical microscope (narrow view, depth of field) |
 | Scroll | Trim tool depth; with the aneurysm clip in hand, rotates the clip |
-| `Q` | Toggle manual depth (full shaft contact) |
+| `M` | Toggle manual depth (full shaft contact) |
 | `Space` / `R` / `E` | Advance / withdraw / secure the catheter (Case 06) |
 | `E` | Lift the bone flap, or begin the final examination |
 | `Esc` | Release the mouse and pause |

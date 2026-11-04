@@ -9,6 +9,8 @@ export const gradeShader = {
     uTime: { value: 0 },
     uCrisis: { value: 0 },
     uAberration: { value: 0.0012 },
+    uBlood: { value: 0 },
+    tSplat: { value: null as unknown },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -16,7 +18,8 @@ export const gradeShader = {
   `,
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
-    uniform float uTime, uCrisis, uAberration;
+    uniform float uTime, uCrisis, uAberration, uBlood;
+    uniform sampler2D tSplat;
     varying vec2 vUv;
     float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233)) + uTime) * 43758.5453); }
     void main() {
@@ -28,6 +31,9 @@ export const gradeShader = {
         texture2D(tDiffuse, vUv).g,
         texture2D(tDiffuse, vUv - off).b
       );
+      // Blood on the lens: drops that bend the view slightly and tint it dark red.
+      float splat = texture2D(tSplat, vUv).r * uBlood;
+      col = mix(col, texture2D(tDiffuse, vUv + (vec2(0.5) - vUv) * 0.025 * splat).rgb * vec3(0.55, 0.12, 0.1), clamp(splat * 1.3, 0.0, 0.88));
       float lum = dot(col, vec3(0.299, 0.587, 0.114));
       // Crisis: desaturate everything except red, so blood stays vivid while the room greys.
       float redness = clamp((col.r - max(col.g, col.b)) * 3.0, 0.0, 1.0);
@@ -43,3 +49,36 @@ export const gradeShader = {
     }
   `,
 };
+
+/** A tile of random blood droplets, painted once, used as the lens-blood mask. */
+export function makeSplat(): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = c.height = 512;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, 512, 512);
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+  for (let i = 0; i < 16; i++) {
+    const x = rnd() * 512,
+      y = rnd() * 512,
+      r = 10 + rnd() * 38;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, "#fff");
+    g.addColorStop(0.7, "#ddd");
+    g.addColorStop(1, "#000");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(x, y, r, r * (0.8 + rnd() * 0.6), rnd() * 3, 0, Math.PI * 2);
+    ctx.fill();
+    // a drip running down from the larger drops
+    if (r > 30) {
+      const drip = ctx.createLinearGradient(x, y, x, y + r * 2.4);
+      drip.addColorStop(0, "#ccc");
+      drip.addColorStop(1, "#000");
+      ctx.fillStyle = drip;
+      ctx.fillRect(x - r * 0.18, y, r * 0.36, r * 2.4);
+    }
+  }
+  return c;
+}

@@ -104,10 +104,10 @@ export function buildAneurysm(scene: THREE.Scene, surface: Surface): AneurysmObj
   const pool = new THREE.Mesh(
     new THREE.CircleGeometry(1, 40),
     new THREE.MeshPhysicalMaterial({
-      color: 0x2a0204,
-      roughness: 0.14,
-      clearcoat: 0.45,
-      envMapIntensity: 0.4,
+      color: 0x3a0407,
+      roughness: 0.5,
+      clearcoat: 0,
+      envMapIntensity: 0.05,
       transparent: true,
       opacity: 0.97,
       polygonOffset: true,

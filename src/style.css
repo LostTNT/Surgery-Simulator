@@ -2495,3 +2495,5 @@ h1, h2 { font-family: var(--display); font-weight: 600; letter-spacing: -0.01em;
 .cine-lines p { text-shadow: 0 1px 12px #000; }
 .cine-clock { top: calc(11vh + 14px); }
 .cine-title { bottom: auto; top: 22vh; }
+.nurse { animation: nurse-fade 1.8s ease-out both; }
+@keyframes nurse-fade { 0% { opacity: 0; transform: translate(-50%, 4px); } 12%, 70% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; } }

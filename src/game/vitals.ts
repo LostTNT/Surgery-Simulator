@@ -60,7 +60,7 @@ export function vitalsTarget(d: VitalsDrivers): Vitals {
       BASE_VITALS.hr + 34 * active + 52 * loss + 20 * d.injury + 40 * shock,
     ),
     sys,
-    dia: Math.max(24, BASE_VITALS.dia - (BASE_VITALS.sys - sys) * 0.55),
+    dia: Math.max(24, Math.min(BASE_VITALS.dia - (BASE_VITALS.sys - sys) * 0.4, sys - 15)),
     spo2: Math.max(
       78,
       BASE_VITALS.spo2 - 7 * Math.max(0, loss - 0.35) - 9 * shock * shock,

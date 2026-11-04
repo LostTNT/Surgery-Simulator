@@ -1,9 +1,9 @@
 import * as THREE from "three";
 
 export const latex = new THREE.MeshPhysicalMaterial({
-  color: 0xe0d0ae,
-  roughness: 0.34,
-  clearcoat: 0.45,
+  color: 0xd9c39a,
+  roughness: 0.5,
+  clearcoat: 0.2,
   clearcoatRoughness: 0.28,
   sheen: 0.5,
   sheenColor: new THREE.Color(0xf4fffb),
@@ -80,6 +80,7 @@ export function addGlove(tool: THREE.Object3D, along = 0.78) {
   sleeve.position.x = dir * (r * 2.25 + 6);
   sleeve.castShadow = true;
   hand.add(sleeve);
+  hand.scale.setScalar(0.72);
   hand.position.set(dir * length * along, 0, 0);
   hand.traverse((o) => {
     if (dir < 0) o.scale.x *= 1;

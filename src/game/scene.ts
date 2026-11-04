@@ -64,7 +64,9 @@ function ringGeometry(inner: number, outer: number, z: number, cloth = false, wr
       const a = (i / angular) * Math.PI * 2,
         r = inner + ((outer - inner) * j) / radial;
       // The scalp is a soft ellipse; only the drape has real folds.
-      const uneven = 1 + 0.006 * Math.sin(a * 5) + 0.004 * Math.sin(a * 9 + 0.5);
+      // Each layer has its own gentle irregularity so the scalp edge is not a set of perfect rings.
+      const phase = z * 41;
+      const uneven = 1 + (cloth ? 0.006 : 0.03) * Math.sin(a * 3 + phase) + (cloth ? 0.004 : 0.016) * Math.sin(a * 7 + phase * 1.7);
       const crease = Math.abs(Math.sin(a * 6 + r * 0.7)) * 0.03;
       const fold = cloth
         ? (Math.sin(a * 11 + r * 3) * 0.02 + Math.sin(a * 5 - r * 2) * 0.025 + crease * 0.5) *

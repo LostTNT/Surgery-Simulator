@@ -142,7 +142,10 @@ export function GameHud({
       : "All checks are ready. Click Examine field to finish the procedure.",
   ];
   const key = (tool: Tool | null) => (tool ? view.belt.indexOf(tool) + 1 : 0);
-  const title = room
+  const ruptured = an?.phase === "ruptured";
+  const title = ruptured && !examining
+    ? "Rupture. Clip the neck."
+    : room
     ? view.heldTool
       ? "Approach the microscope"
       : "Choose your procedure"
@@ -153,7 +156,9 @@ export function GameHud({
         : view.heldTool && required && view.heldTool !== required
           ? `Ask for ${TOOLS[required].name}`
           : titles[step];
-  const detail = room
+  const detail = ruptured && !examining
+    ? "Suction over the dome to see the neck, then press 3 for the clip. Bipolar will not seal this."
+    : room
     ? view.heldTool
       ? "Walk to the patient’s head. Press E to enter surgery."
       : "Walk to the lit case workstation. Click its screen or press E to choose a surgery."
@@ -346,7 +351,7 @@ export function GameHud({
               </button>
             ))}
           </nav>
-          {view.nurse && view.swapping && (
+          {view.nurse && (
             <div className="nurse" key={view.nurse.id}>
               NURSE — {view.nurse.text}
             </div>

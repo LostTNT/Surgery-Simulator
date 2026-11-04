@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Engine, type Snapshot } from "./game/engine";
-import { CASES, createState, score, type CaseId } from "./game/simulation";
+import { CASES, createState, score, type CaseId, type Quality } from "./game/simulation";
 import { GameHud } from "./ui/GameHud";
 import { Icon } from "./ui/Icons";
 import { Briefing } from "./ui/Briefing";
@@ -551,7 +551,7 @@ export default function App() {
                   ],
                   [
                     "SCROLL",
-                    "Fine-tune depth. Scroll down to lower; up to raise. Assisted mode follows the surface; Q switches to manual.",
+                    "Fine-tune depth. Scroll down to lower; up to raise. Assisted mode follows the surface; M switches to manual.",
                   ],
                   [
                     "WASD / E",
@@ -599,7 +599,7 @@ export default function App() {
                   press E when fluid returns. Avoid the bright vessel and the midline.
                 </p>
                 <p>
-                  Bone is rigid and can be carved away; tissue yields and rebounds. Manual depth (Q)
+                  Bone is rigid and can be carved away; tissue yields and rebounds. Manual depth (M)
                   adds full shaft contact. Everything here is a simplified game response.
                 </p>
               </div>
@@ -647,18 +647,18 @@ export default function App() {
               <label className="setting-row">
                 <span>
                   <strong>Graphics</strong>
-                  <small>High adds soft shadows and ambient occlusion</small>
+                  <small>Steps down by itself if the frame rate drops. Ultra wants a dedicated GPU.</small>
                 </span>
                 <select
                   value={view.quality}
                   onChange={(e) =>
-                    engine.current?.setQuality(
-                      e.target.value as "high" | "balanced",
-                    )
+                    engine.current?.setQuality(e.target.value as Quality)
                   }
                 >
-                  <option value="high">High</option>
-                  <option value="balanced">Balanced</option>
+                  <option value="low">Low · fastest</option>
+                  <option value="balanced">Balanced · shadows</option>
+                  <option value="high">High · occlusion, bloom, grade</option>
+                  <option value="ultra">Ultra · depth of field, 4K shadows</option>
                 </select>
               </label>
               <button

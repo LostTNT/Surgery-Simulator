@@ -23,3 +23,7 @@ The reference surface and this game are not approved clinical tools. No endorsem
 - `textures/bone.webp`: generated ivory bone material. The bone mesh, cut damage field, removed triangles, liftable flap, burr and debris are original interactive game geometry in `src/game/access.ts`.
 - Tissue deformation uses original local spring code in `src/game/soft-tissue.ts`; it is not a measured biomechanical material model.
 - Existing instrument artwork is used as a horizontal sprite strip, with native UI labels. All new task/target/path indicators are native UI.
+
+## Third-party assets added for the first-person redesign
+
+- `env/surgery_1k.hdr`: "Surgery" HDRI by Oliksiy Yakovlyev from [Poly Haven](https://polyhaven.com/a/surgery), **CC0**. Used only for environment lighting and reflections.
