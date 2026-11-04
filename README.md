@@ -1,6 +1,6 @@
 # Suture
 
-**A browser neurosurgery game.** Read the patient's briefing, scrub in, and keep a steady hand through six different procedures. The patient has a heartbeat, blood pressure and an anaesthetist who talks to you. Your choices change what happens next, and every operation ends with a graded debrief.
+**A first-person browser neurosurgery game.** You are the only surgeon awake. Read the patient's briefing, scrub in, and operate on an actual draped patient in a real 3D operating room: look around, step in and lean over the head, and work with your own gloved hands. Six different procedures. The patient has a heartbeat, blood pressure and an anaesthetist who talks to you. Your choices change what happens next, and every operation ends with a graded debrief.
 
 **Play online: https://losttnt.github.io/Surgery-Simulator/**
 
@@ -28,18 +28,20 @@ Each case opens with a short, quiet **arrival scene** in an eerily empty hospita
 
 | Input | Action |
 | --- | --- |
-| Mouse | Aim the instrument |
-| Hold left button | Operate the held instrument |
-| `T` | Open the instrument tray (one tool in hand at a time) |
-| Scroll | Trim tool depth (assisted mode) |
-| `Shift` | Fine movement |
+| Click the view | Take control (captures the mouse) |
+| Mouse | Look around; the crosshair is where the instrument works |
+| `W` `A` `S` `D` | Step around and lean in over the patient (`W` moves along your view) |
+| `Shift` | Slow, fine movement |
+| Hold left button | Operate the instrument in your hand |
+| `1` `2` `3` | Ask the scrub nurse for an instrument (she says its name) |
+| `Z` | Look through the surgical microscope (narrow view, depth of field) |
+| Scroll | Trim tool depth; with the aneurysm clip in hand, rotates the clip |
 | `Q` | Toggle manual depth (full shaft contact) |
-| `A` / `D` | Rotate the aneurysm clip (Case 04) |
 | `Space` / `R` / `E` | Advance / withdraw / secure the catheter (Case 06) |
 | `E` | Lift the bone flap, or begin the final examination |
-| `Esc` | Pause |
+| `Esc` | Release the mouse and pause |
 
-The room is walkable (`WASD`), or choose **Go straight to surgery**.
+If the browser cannot capture the mouse (touch, some embeds), the view stays at its default pose and the pointer aims directly.
 
 ## Run it locally
 
