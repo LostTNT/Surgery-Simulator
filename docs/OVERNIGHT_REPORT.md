@@ -17,16 +17,27 @@ Every case was the same loop: carve bone, hold the mouse over four blobs, rinse 
 | Result screen | 3 numbers | **Graded debrief** S to F with five scored parts, a timeline from the event log, and surgeon's notes explaining mistakes |
 | Old cases | Straight through | Seeded **complications** at Attending and Chief: re-bleed, hidden second source, a pocket that refills |
 | Chooser | Plain list | Patient names, difficulty, best-grade badges |
+| Feel | Clean and calm | **Visceral pass** (see below) |
 
-### The six procedures
+### The six procedures (plus a practice lab)
 
-1. **Lab**: practice field.
-2. **01 Chronic subdural**: washout; membrane re-bleed at Attending.
-3. **02 Acute bleed**: find the source first; a second hidden vessel appears.
-4. **03 Loculated washout**: six pockets; one refills when a wall gives way.
-5. **04 Aneurysm clipping** (new mechanics): release two tethers with bipolar, free the neck with gentle suction, align a clip with `A`/`D` and hold to close. Fast hands near the dome raise wall tension; at 100% it ruptures. After a rupture, bipolar will not seal it; you must suction to see the neck (a blind clip misses) and clip quickly while the patient crashes. Clipping the parent artery injures it.
-6. **05 Tumour resection** (new): seal three feeding vessels, then debulk to at least 85% with suction while staying out of a green motor-cortex zone. Cutting past an unsealed feeder makes it bleed.
-7. **06 Ventricular drain** (new, a different kind of play): aim a catheter on a CT slice, advance, and secure it when fluid returns while intracranial pressure climbs. The obvious straight line clips a vessel; you have to angle around it. Crossing the midline or passing through the far wall injures tissue; missed passes cost tissue.
+- **Lab**: practice field.
+- **01 Chronic subdural**: washout; membrane re-bleed at Attending.
+- **02 Acute bleed**: find the source first; a second hidden vessel appears.
+- **03 Loculated washout**: six pockets; one refills when a wall gives way.
+- **04 Aneurysm clipping** (new mechanics): release two tethers with bipolar, free the neck with gentle suction, align a clip with `A`/`D` and hold to close. Fast hands near the dome raise wall tension; at 100% it ruptures. After a rupture, bipolar will not seal it; you must suction to see the neck (a blind clip misses) and clip quickly while the patient crashes. Clipping the parent artery injures it.
+- **05 Tumour resection** (new): seal three feeding vessels, then debulk to at least 85% with suction while staying out of a green motor-cortex zone. Cutting past an unsealed feeder makes it bleed.
+- **06 Ventricular drain** (new, a different kind of play): aim a catheter on a CT slice, advance, and secure it when fluid returns while intracranial pressure climbs. The obvious straight line clips a vessel; you have to angle around it. Crossing the midline or passing through the far wall injures tissue; missed passes cost tissue.
+
+## The visceral pass (you asked for painful and uneasy)
+
+- **Blood**: bleeding spurts in time with the heartbeat, and a pool grows with the blood actually lost and stays after you control the bleed. A red haze creeps over the view as bleeding and loss mount.
+- **Lasting damage**: every injury leaves a dark bruise on the cortex where it happened.
+- **The patient fading**: as blood pressure falls, colour drains and the view blurs and tunnels. A red alarm vignette pulses when the patient is critical, the aneurysm has burst or pressure is dangerous.
+- **Jolts**: the screen jolts when you injure tissue or the aneurysm ruptures, and the anaesthetist says the patient flinched.
+- **Sound** (untested by ear): a ventilator breath every few seconds, wet suction, hissing irrigation, crackling bipolar, a drill grind, heart-rate-synced beeps that sharpen when critical, and a flatline tone when the patient dies.
+- **Consequences**: death is blunt. The screen goes dark red and says "The patient did not survive." Bleeding and pressure are real fail states, not just score penalties. Resident softens all of it; Chief is faster and unforgiving.
+- Bloody and realistic by design, in line with the project brief. It is stylised 3D, not photographic.
 
 ## Verification
 
