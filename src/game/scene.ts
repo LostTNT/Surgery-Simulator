@@ -51,7 +51,7 @@ function ringGeometry(inner: number, outer: number, z: number, cloth = false) {
     uv: number[] = [],
     indices: number[] = [],
     colors: number[] = [];
-  const radial = cloth ? 18 : 5,
+  const radial = cloth ? 40 : 5,
     angular = 160;
   for (let j = 0; j <= radial; j++)
     for (let i = 0; i <= angular; i++) {
@@ -68,7 +68,12 @@ function ringGeometry(inner: number, outer: number, z: number, cloth = false) {
         Math.sin(a) * r * 0.84 * uneven,
         z +
           fold -
-          (cloth ? Math.max(0, r - 2.2) * 0.35 : 0) +
+          (cloth
+            ? // The drape hugs the head, then runs out flat onto the table.
+              r < 3.6
+                ? Math.max(0, r - 2.14) * 0.69
+                : 1.0 + (r - 3.6) * 0.06
+            : 0) +
           (cloth
             ? 0.035 * Math.sin(r * 5)
             : Math.sin((j / radial) * Math.PI) * 0.055),
@@ -135,10 +140,10 @@ export function buildField(
     bumpMap: drape,
     bumpScale: 0.016,
     roughness: 0.98,
-    color: 0x6b8b83,
+    color: 0x3f6a60,
     side: THREE.DoubleSide,
   });
-  mesh(ringGeometry(1.98, 5.5, 0.4, true), cloth, scene);
+  mesh(ringGeometry(2.14, 5.5, 0.4, true), cloth, scene);
   const bone = new THREE.MeshStandardMaterial({
     color: 0xe4d6b7,
     map: boneTexture,
@@ -156,12 +161,17 @@ export function buildField(
     side: THREE.DoubleSide,
   });
   mesh(ringGeometry(1.65, 1.73, 0.255), edge, scene);
-  const periosteum = new THREE.MeshStandardMaterial({
-    color: 0xb07866,
-    roughness: 0.49,
+  // The retracted scalp edge: thick, wet and dark red, the way it looks in a real craniotomy.
+  const periosteum = new THREE.MeshPhysicalMaterial({
+    color: 0x6e1a1e,
+    roughness: 0.32,
+    clearcoat: 0.9,
+    clearcoatRoughness: 0.18,
     side: THREE.DoubleSide,
   });
-  mesh(ringGeometry(1.93, 1.99, 0.36), periosteum, scene);
+  mesh(ringGeometry(1.9, 2.12, 0.38), periosteum, scene);
+  const scalpFat = new THREE.MeshStandardMaterial({ color: 0xc58f6a, roughness: 0.6, side: THREE.DoubleSide });
+  mesh(ringGeometry(2.08, 2.2, 0.395), scalpFat, scene);
   // Continuous inner exposure wall prevents a black gap between cortex and rim.
   const wallPoints: number[] = [],
     wallIndex: number[] = [];

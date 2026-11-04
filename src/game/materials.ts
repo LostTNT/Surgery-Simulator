@@ -10,13 +10,13 @@ export function tissueMaterial(texture: THREE.Texture) {
     bumpMap: texture,
     bumpScale: 0.032,
     color: 0xe3c1b0,
-    roughness: 0.48,
-    clearcoat: 0.32,
-    clearcoatRoughness: 0.23,
+    roughness: 0.4,
+    clearcoat: 0.78,
+    clearcoatRoughness: 0.12,
     sheen: 0.22,
     sheenColor: new THREE.Color(0xb85f54),
     sheenRoughness: 0.75,
-    envMapIntensity: 0.48,
+    envMapIntensity: 0.62,
     side: THREE.DoubleSide,
   });
   material.onBeforeCompile = (shader) => {
@@ -27,6 +27,6 @@ export function tissueMaterial(texture: THREE.Texture) {
        reflectedLight.indirectDiffuse += diffuseColor.rgb * vec3(0.12, 0.025, 0.014) * tissueWrap;`,
     );
   };
-  material.customProgramCacheKey = () => "suture-tissue-wrap-v1";
+  material.customProgramCacheKey = () => "suture-tissue-wrap-v2";
   return material;
 }

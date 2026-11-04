@@ -33,6 +33,11 @@ const initial: Snapshot = {
   trayView: false,
   cameraMoving: false,
   traySlots: [],
+  belt: [],
+  swapping: false,
+  locked: false,
+  canLock: false,
+  scope: false,
 };
 function clock(t: number) {
   return `${Math.floor(t / 60)
@@ -116,6 +121,23 @@ export default function App() {
       /* speech is optional */
     }
   }, [view.callout?.id, view.sound, live]);
+  const nurseSpoken = useRef(0);
+  useEffect(() => {
+    const n = view.nurse;
+    if (!n || !view.sound || !live || n.id === nurseSpoken.current) return;
+    nurseSpoken.current = n.id;
+    try {
+      const synth = window.speechSynthesis;
+      if (!synth) return;
+      const u = new SpeechSynthesisUtterance(n.text);
+      u.rate = 1.15;
+      u.pitch = 1.05;
+      u.volume = 0.5;
+      synth.speak(u);
+    } catch {
+      /* speech is optional */
+    }
+  }, [view.nurse?.id, view.sound, live]);
   const failureDetail = view.events.filter((e) => e.type === "failure").at(-1)?.detail ?? "";
   const died = failed && /pressure collapsed|blood was lost|herniat|bleeding source/i.test(failureDetail);
   function close() {
@@ -260,6 +282,11 @@ export default function App() {
         style={fade > 0.02 ? { filter: `saturate(${1 - fade * 0.7}) brightness(${1 - fade * 0.25})` } : undefined}
       />
       <div className="lens-shade" aria-hidden="true" />
+      {view.location === "surgery" && !view.drain && !menuOpen && view.scope && (
+        <div className="eyepiece" aria-hidden="true">
+          <i />
+        </div>
+      )}
       {alarm && <div className="alarm-vignette" aria-hidden="true" />}
       {haze > 0.02 && <div className="blood-haze" style={{ opacity: haze }} aria-hidden="true" />}
       {fade > 0.02 && <div className="fade-vignette" style={{ opacity: fade }} aria-hidden="true" />}

@@ -10,6 +10,11 @@ import { tissueMaterial } from "./materials";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { SSAOPass } from "three/addons/postprocessing/SSAOPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { BokehPass } from "three/addons/postprocessing/BokehPass.js";
+import { addGlove } from "./gloves";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
+import { gradeShader } from "./grade";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { BoneWindow, buildBurr } from "./access";
 import { SoftTissue } from "./soft-tissue";
@@ -32,6 +37,7 @@ import {
   cancelInspection,
   initializeProcedure,
   CASES,
+  TOOLS,
   type GameState,
   type CaseId,
   type Tool,
@@ -59,11 +65,16 @@ export interface Snapshot extends GameState {
   trayView: boolean;
   cameraMoving: boolean;
   traySlots: { tool: Tool; x: number; y: number }[];
+  belt: Tool[];
+  swapping: boolean;
+  locked: boolean;
+  canLock: boolean;
+  scope: boolean;
 }
 export class Engine {
   state = createState();
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(35, 1, 0.05, 350);
+  camera = new THREE.PerspectiveCamera(52, 1, 0.03, 350);
   renderer: THREE.WebGLRenderer;
   host: HTMLElement;
   brain: THREE.Mesh | null = null;
@@ -107,11 +118,42 @@ export class Engine {
   depthOffset = 0;
   composer: EffectComposer;
   occlusion: SSAOPass;
+  bokeh: BokehPass;
+  bloom: UnrealBloomPass;
+  grade: ShaderPass;
+  camBase = new THREE.Vector3();
+  camLook = new THREE.Vector3();
   beauty: RenderPass;
   bone: BoneWindow | null = null;
   softTissue: SoftTissue | null = null;
   accessPhase: "bone" | "lifting" | "surgery" = "bone";
   trayView = false;
+  /** A scrub-nurse handoff in progress: the old tool drops out, the new one rises in. */
+  /** First-person rig: where the surgeon's eyes are in the operating-room world. */
+  fp = { pos: new THREE.Vector3(0, -2.3, 5.8), yaw: Math.PI / 2, pitch: -1.2 };
+  fpKeys = new Set<string>();
+  locked = false;
+  lockFailed = false;
+  scope = false;
+  /** Automation and touch cannot capture the pointer; they keep the fixed pose and pointer aim. */
+  get canLock() {
+    return typeof navigator !== "undefined" && !navigator.webdriver && !this.lockFailed;
+  }
+  resetCamera() {
+    this.fp.pos.set(0, -2.3, 5.8);
+    this.fp.yaw = Math.PI / 2;
+    this.fp.pitch = -1.2;
+    this.fpKeys.clear();
+    this.updateCamera();
+  }
+  forward() {
+    const { yaw, pitch } = this.fp;
+    return new THREE.Vector3(Math.cos(pitch) * Math.cos(yaw), Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch));
+  }
+  /** 0..1 spike that smears the lens when the surgeon hurts the patient. */
+  jolt = 0;
+  lastHurt = "";
+  swap: { t: number; to: Tool; done: boolean } | null = null;
   trayPan = 0;
   tray: InstrumentTray | null = null;
   autoQuality = true;
@@ -145,6 +187,17 @@ export class Engine {
     this.occlusion.minDistance = 0.00008;
     this.occlusion.maxDistance = 0.008;
     this.composer.addPass(this.occlusion);
+    // A microscope has a very shallow depth of field and bright wet highlights bloom.
+    this.bokeh = new BokehPass(this.scene, this.camera, {
+      focus: 7,
+      aperture: 0.00006,
+      maxblur: 0.0065,
+    });
+    this.composer.addPass(this.bokeh);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.28, 0.6, 0.86);
+    this.composer.addPass(this.bloom);
+    this.grade = new ShaderPass(gradeShader);
+    this.composer.addPass(this.grade);
     this.composer.addPass(new OutputPass());
     this.camera.up.set(0, 0, 1);
     this.updateCamera();
@@ -175,6 +228,35 @@ export class Engine {
     this.resize();
     void this.load();
     this.frameId = requestAnimationFrame(this.frame);
+  }
+  /** Instruments the scrub nurse can hand you right now. */
+  get belt(): Tool[] {
+    const kind = CASES[this.state.caseId].kind;
+    if (kind === "washout")
+      return this.accessPhase === "surgery"
+        ? ["suction", "irrigation", "bipolar"]
+        : ["drill"];
+    return this.tray?.tools ?? TRAY_TOOLS;
+  }
+  /** Put the right instrument in hand without animation (start of an operation or a retry). */
+  equipDefault() {
+    const tool = this.belt[0];
+    this.heldTool = tool;
+    chooseTool(this.state, tool);
+    this.swap = null;
+    this.trayView = false;
+    this.tray?.update(tool);
+    this.tip.set(0.55, -0.3, 0.62);
+    this.target.copy(this.tip);
+    this.previous.copy(this.tip);
+  }
+  /** Ask the scrub nurse for an instrument: the old one drops, the new one rises. */
+  swapTool(tool: Tool) {
+    if (this.location !== "surgery" || this.state.status !== "running") return;
+    if (this.swap || tool === this.heldTool || !this.belt.includes(tool)) return;
+    cancelInspection(this.state);
+    this.freezeInput();
+    this.swap = { t: 0, to: tool, done: false };
   }
   snapshot(): Snapshot {
     let roomWaypoint: Snapshot["roomWaypoint"] = null;
@@ -239,6 +321,11 @@ export class Engine {
         })) ?? [],
       roomWaypoint,
       workstationTarget,
+      belt: this.belt,
+      swapping: this.swap !== null,
+      locked: this.locked,
+      canLock: this.canLock,
+      scope: this.scope,
       trayView: this.trayView,
       cameraMoving:
         Math.abs(
@@ -343,6 +430,7 @@ export class Engine {
       burr.rotation.set(0, -0.85, -0.48);
       this.tools.drill = burr;
       this.scene.add(burr);
+      for (const tool of Object.values(this.tools)) if (tool) addGlove(tool.getObjectByName("shaft") ?? tool);
       this.room = new OperatingRoom(
         this.scene.environment as THREE.Texture,
         drape,
@@ -414,18 +502,39 @@ export class Engine {
     return hit ? hit.point.z : -0.35;
   }
   updateCamera() {
-    const z = this.state.zoom * (1 - this.trayPan * 0.28);
-    const fit = Math.min(1, this.camera.aspect / 0.95);
-    const x = this.trayPan * 2.25;
-    this.camera.position.set(
-      x,
-      (-2.65 - this.trayPan * 3.2) / z / fit - this.trayPan * 0.25,
-      6.6 / z / fit,
-    );
-    this.camera.lookAt(x, -0.04 - this.trayPan * 0.25, -0.13);
+    const f = this.forward();
+    this.camera.fov = (this.scope ? 24 : 52) / this.state.zoom;
+    this.camera.updateProjectionMatrix();
+    this.camera.position.copy(this.fp.pos);
+    this.camBase.copy(this.fp.pos);
+    this.camLook.copy(this.fp.pos).addScaledVector(f, 10);
+    this.camera.up.set(0, 0, 1);
+    this.camera.lookAt(this.camLook);
     this.camera.updateMatrixWorld();
     this.pointer = null;
     this.dirty = true;
+  }
+  /** Walk, lean and look. W/S move along the view so you can lean in over the head. */
+  stepCamera(dt: number) {
+    if (this.location !== "surgery" || this.state.status !== "running") return;
+    const f = this.forward(),
+      right = new THREE.Vector3(f.y, -f.x, 0).normalize(),
+      move = new THREE.Vector3();
+    if (this.fpKeys.has("w")) move.add(f);
+    if (this.fpKeys.has("s")) move.sub(f);
+    if (this.fpKeys.has("d")) move.add(right);
+    if (this.fpKeys.has("a")) move.sub(right);
+    if (move.lengthSq() === 0) return;
+    move.normalize().multiplyScalar((this.precision ? 1.1 : 3.4) * dt);
+    const p = this.fp.pos.add(move);
+    p.x = THREE.MathUtils.clamp(p.x, -7, 7);
+    p.y = THREE.MathUtils.clamp(p.y, -9, 9);
+    p.z = THREE.MathUtils.clamp(p.z, 1.0, 9);
+    // Stay out of the head itself.
+    const centre = new THREE.Vector3(0, 0, 0.1),
+      away = p.clone().sub(centre);
+    if (away.length() < 1.9) p.copy(centre).add(away.setLength(1.9));
+    this.updateCamera();
   }
   resize() {
     const w = this.host.clientWidth,
@@ -442,13 +551,14 @@ export class Engine {
     this.dirty = true;
   }
   lockPointer() {
-    if (this.location === "room") {
-      try {
-        const result = this.renderer.domElement.requestPointerLock?.();
-        if (result instanceof Promise) void result.catch(() => {});
-      } catch {
-        /* Drag and arrow-key look remain available. */
-      }
+    try {
+      const result = this.renderer.domElement.requestPointerLock?.();
+      if (result instanceof Promise)
+        void result.catch(() => {
+          this.lockFailed = true;
+        });
+    } catch {
+      this.lockFailed = true;
     }
   }
   freezeInput() {
@@ -478,7 +588,9 @@ export class Engine {
   startSurgery() {
     if (!this.loaded) return;
     this.location = "surgery";
-    this.trayView = this.heldTool === null;
+    this.trayView = false;
+    this.resetCamera();
+    if (!this.heldTool || !this.belt.includes(this.heldTool)) this.equipDefault();
     this.room?.keys.clear();
     if (document.pointerLockElement) document.exitPointerLock();
     this.start();
@@ -586,6 +698,8 @@ export class Engine {
     if (this.state.status === "paused") this.start();
   }
   toggleTray() {
+    // The scrub nurse hands you instruments now; there is no tray trip in surgery.
+    return;
     if (this.state.status !== "running" || this.location !== "surgery") return;
     cancelInspection(this.state);
     this.freezeInput();
@@ -604,18 +718,8 @@ export class Engine {
   }
   selectTool(tool: Tool) {
     if (this.location === "surgery") {
-      if (!this.trayView || this.heldTool) return;
-      this.freezeInput();
-      chooseTool(this.state, tool);
-      this.tip.z = 1;
-      this.target.copy(this.tip);
-      this.previous.copy(this.tip);
-      this.state.depth = this.tip.z;
-      this.depthOffset = 0;
-      this.heldTool = tool;
-      this.trayView = false;
-      this.tray?.update(tool);
-      logEvent(this.state, "pickup", `Picked up ${tool} from surgical tray`);
+      this.swapTool(tool);
+      return;
     } else {
       this.freezeInput();
       chooseTool(this.state, tool);
@@ -708,10 +812,7 @@ export class Engine {
         this.stageSnapshots.get(this.state.stage),
       );
       if (this.accessPhase !== "surgery") this.prepareAccess();
-      this.tip.set(0.55, -0.3, 0.62);
-      this.heldTool = null;
-      this.trayView = true;
-      this.tray?.update(null);
+      this.equipDefault();
       this.depthOffset = 0;
       this.softTissue?.reset();
       this.target.copy(this.tip);
@@ -738,6 +839,16 @@ export class Engine {
     this.state.action = false;
     this.emit();
     this.dirty = true;
+  }
+  setScope(on: boolean) {
+    if (this.scope === on) return;
+    this.scope = on;
+    this.updateCamera();
+    this.emit();
+  }
+  aimCentre() {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    this.aimAt(r.left + r.width / 2, r.top + r.height / 2);
   }
   drainAim(angle: number) {
     const d = this.state.drain;
@@ -812,6 +923,7 @@ export class Engine {
         }
         return;
       }
+      if (this.locked) return; // locked: the crosshair aims, mouse movement turns your head
       if (!this.trayView && this.heldTool && !this.state.inspectionActive)
         this.aimAt(e.clientX, e.clientY);
     }) as EventListener);
@@ -848,15 +960,32 @@ export class Engine {
           else if (hit && hit !== "place") this.selectTool(hit);
           return;
         }
-        if (!this.heldTool || this.trayPan > 0.001) return;
+        if (this.canLock && !this.locked) {
+          // First click takes the controls; the next one operates.
+          this.lockPointer();
+          return;
+        }
+        if (!this.heldTool || this.trayPan > 0.001 || this.swap) return;
         cancelInspection(this.state);
         this.state.action = true;
-        this.aimAt(e.clientX, e.clientY);
+        if (this.locked) this.aimCentre();
+        else this.aimAt(e.clientX, e.clientY);
         canvas.setPointerCapture(e.pointerId);
         e.preventDefault();
       }
     }) as EventListener);
     listen(document, "mousemove", ((e: MouseEvent) => {
+      if (
+        this.location === "surgery" &&
+        this.state.status === "running" &&
+        document.pointerLockElement === canvas
+      ) {
+        const k = (this.scope ? 0.0009 : 0.0021) * (this.precision ? 0.45 : 1);
+        this.fp.yaw -= e.movementX * k;
+        this.fp.pitch = THREE.MathUtils.clamp(this.fp.pitch - e.movementY * k, -1.52, 0.4);
+        this.updateCamera();
+        return;
+      }
       if (
         this.location === "room" &&
         this.state.status === "running" &&
@@ -867,12 +996,10 @@ export class Engine {
       }
     }) as EventListener);
     listen(document, "pointerlockchange", (() => {
-      if (
-        this.location === "room" &&
-        this.state.status === "running" &&
-        !document.pointerLockElement
-      )
+      this.locked = document.pointerLockElement === canvas;
+      if (this.state.status === "running" && !document.pointerLockElement && this.canLock)
         this.pause();
+      this.emit();
     }) as EventListener);
     listen(window, "pointerup", (() => {
       this.state.action = false;
@@ -891,6 +1018,11 @@ export class Engine {
         e.preventDefault();
         if (this.state.status !== "running" || this.location !== "surgery")
           return;
+        if (this.state.tool === "clip" && this.heldTool === "clip") {
+          this.state.clipAngle -= Math.sign(e.deltaY) * (this.precision ? 0.03 : 0.1);
+          this.dirty = true;
+          return;
+        }
         if (this.depthAssist) {
           this.depthOffset = THREE.MathUtils.clamp(
             this.depthOffset - Math.sign(e.deltaY) * 0.018,
@@ -958,14 +1090,19 @@ export class Engine {
         return;
       }
       if (e.key.toLowerCase() === "t") this.toggleTray();
+      if (["w", "a", "s", "d"].includes(e.key.toLowerCase())) {
+        this.fpKeys.add(e.key.toLowerCase());
+        e.preventDefault();
+      }
+      if (e.key.toLowerCase() === "z") this.setScope(!this.scope);
       if (
         this.state.tool === "clip" &&
         this.heldTool === "clip" &&
         !this.trayView &&
-        ["a", "d", "arrowleft", "arrowright"].includes(e.key.toLowerCase())
+        ["arrowleft", "arrowright"].includes(e.key.toLowerCase())
       ) {
         const step = this.precision ? 0.025 : 0.09;
-        const dir = ["a", "arrowleft"].includes(e.key.toLowerCase()) ? 1 : -1;
+        const dir = e.key.toLowerCase() === "arrowleft" ? 1 : -1;
         this.state.clipAngle += dir * step;
         e.preventDefault();
         this.dirty = true;
@@ -978,9 +1115,8 @@ export class Engine {
         else this.liftBone();
       }
       if (["1", "2", "3", "4"].includes(e.key)) {
-        if (this.trayView && !this.heldTool)
-          this.selectTool((this.tray?.tools ?? TRAY_TOOLS)[+e.key - 1]);
-        else if (!this.trayView) this.toggleTray();
+        const tool = this.belt[+e.key - 1];
+        if (tool) this.swapTool(tool);
       }
       if (e.key.toLowerCase() === "h") this.toggleAnatomy();
       if (e.key.toLowerCase() === "q") this.setDepthAssist(!this.depthAssist);
@@ -998,6 +1134,7 @@ export class Engine {
       if (e.key === "-") this.zoom(-0.1);
     }) as EventListener);
     listen(window, "keyup", ((e: KeyboardEvent) => {
+      this.fpKeys.delete(e.key.toLowerCase());
       if (e.key === "Shift") this.precision = false;
       this.room?.keys.delete(e.key.toLowerCase());
     }) as EventListener);
@@ -1097,6 +1234,8 @@ export class Engine {
         this.room?.update(delta, this.heldTool, now / 1000, this.state.tool);
         this.dirty = true;
       } else if (this.state.status === "running") {
+        this.stepCamera(delta);
+        if (this.locked && this.heldTool && !this.trayView && !this.state.inspectionActive) this.aimCentre();
         this.accumulator += delta;
         while (this.accumulator >= 1 / 60) {
           this.previous.copy(this.tip);
@@ -1194,9 +1333,40 @@ export class Engine {
           }
           this.stageSnapshots.set(0, structuredClone(this.state));
           this.depthOffset = 0;
-          this.trayView = true;
+          this.trayView = false;
+          // Bone work is over: the burr goes back and the nurse hands you the next instrument.
+          if (this.heldTool === "drill" || !this.belt.includes(this.heldTool as Tool)) this.equipDefault();
           this.freezeInput();
         }
+      }
+      const last = this.state.events[this.state.events.length - 1];
+      if (last && (last.type === "injury" || last.type === "rupture")) {
+        const id = `${last.time}|${last.detail}`;
+        if (id !== this.lastHurt) {
+          this.lastHurt = id;
+          this.jolt = 1;
+        }
+      }
+      let swapOffset = 0;
+      if (this.swap && this.state.status === "running") {
+        const s = this.swap;
+        s.t += delta;
+        const ease = (x: number) => x * x * (3 - 2 * x);
+        if (s.t < 0.18) swapOffset = ease(Math.min(1, s.t / 0.18));
+        else {
+          if (!s.done) {
+            s.done = true;
+            chooseTool(this.state, s.to);
+            this.heldTool = s.to;
+            this.tray?.update(s.to);
+            this.depthOffset = 0;
+            this.state.nurse = { id: (this.state.nurse?.id ?? 0) + 1, text: `${TOOLS[s.to].name}.` };
+            logEvent(this.state, "pickup", `Handed ${s.to}`);
+          }
+          swapOffset = 1 - ease(Math.min(1, (s.t - 0.18) / 0.27));
+          if (s.t >= 0.45) this.swap = null;
+        }
+        this.dirty = true;
       }
       for (const [name, model] of Object.entries(this.tools))
         if (model) {
@@ -1204,8 +1374,23 @@ export class Engine {
             this.location === "surgery" &&
             name === this.heldTool &&
             !this.state.inspectionActive;
+          if (name === this.heldTool && !this.trayView) {
+            // The instrument runs from the tip back toward your own gloved hand,
+            // low and to the right of your view, like a real first-person hold.
+            const orient = model.getObjectByName("shaft") ?? model;
+            const axis = (orient.userData.axis as THREE.Vector3 | undefined) ?? new THREE.Vector3(1, 0, 0);
+            const f = this.forward(),
+              right = new THREE.Vector3(f.y, -f.x, 0).normalize(),
+              hand = this.fp.pos
+                .clone()
+                .addScaledVector(f, 1.5)
+                .addScaledVector(right, 1.5)
+                .addScaledVector(new THREE.Vector3(0, 0, 1), -1.15);
+            const dir = hand.sub(this.tip).normalize();
+            orient.quaternion.setFromUnitVectors(axis.clone().normalize(), dir);
+          }
           if (this.trayView) model.position.set(0.7, -2.5, 1.6);
-          else model.position.copy(this.tip);
+          else model.position.copy(this.tip).add(new THREE.Vector3(0.6 * swapOffset, -1.0 * swapOffset, 0.1 * swapOffset));
           if (name === "clip") {
             const jaws = model.getObjectByName("jaws");
             if (jaws) {
@@ -1238,6 +1423,25 @@ export class Engine {
       }
       this.tray?.update(this.heldTool);
       if (this.dirty) {
+        if (
+          this.location === "surgery" &&
+          this.state.status === "running" &&
+          !this.trayView &&
+          this.trayPan < 0.001
+        ) {
+          // Breathing and pulse make the view alive; fatigue and shock make it worse.
+          const t = now / 1000,
+            beat = Math.sin((t * Math.PI * 2 * this.state.vitals.hr) / 60),
+            stress = 1 + Math.min(1.6, this.state.shock * 2 + this.state.injury);
+          const s = 0.009 * stress;
+          this.camera.position.set(
+            this.camBase.x + Math.sin(t * 0.7) * s + beat * 0.0012,
+            this.camBase.y + Math.sin(t * 0.5 + 1) * s,
+            this.camBase.z + Math.sin(t * 0.9 + 2) * s * 0.6 + Math.max(0, beat) * 0.0022,
+          );
+          this.camera.lookAt(this.camLook);
+          this.camera.updateMatrixWorld();
+        }
         this.aneurysm?.update(this.state, now / 1000);
         this.tumor?.update(this.state, now / 1000);
         this.wounds?.update(this.state, now / 1000);
@@ -1272,6 +1476,26 @@ export class Engine {
           this.beauty.camera = camera;
           this.occlusion.scene = scene;
           this.occlusion.camera = camera;
+          this.bokeh.scene = scene;
+          this.bokeh.camera = camera;
+          // Focus on the instrument tip; the rest of the field softens around it.
+          const focus = camera.position.distanceTo(this.tip);
+          (this.bokeh.uniforms as { focus: { value: number } }).focus.value =
+            this.location === "surgery" ? focus : 6;
+          // Mood: calm, tense, crisis. It eases in so a collapse feels like the room closing in.
+          const crisis = Math.min(
+            1,
+            Math.max(
+              this.state.shock * 1.4,
+              (110 - this.state.vitals.sys) / 45,
+              this.state.aneurysm?.phase === "ruptured" ? 0.9 : 0,
+            ),
+          );
+          const g = this.grade.uniforms as Record<string, { value: number }>;
+          g.uCrisis.value += (Math.max(0, crisis) - g.uCrisis.value) * 0.05;
+          g.uTime.value = now / 1000;
+          g.uAberration.value = 0.0012 + g.uCrisis.value * 0.0035 + (this.jolt > 0 ? 0.006 * this.jolt : 0);
+          this.jolt = Math.max(0, this.jolt - 0.06);
           const u = this.occlusion.ssaoMaterial.uniforms;
           u.cameraNear.value = camera.near;
           u.cameraFar.value = camera.far;

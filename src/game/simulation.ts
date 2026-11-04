@@ -256,6 +256,8 @@ export interface GameState {
   activeComplication: string | null;
   /** Orientation of the held clip in radians. */
   clipAngle: number;
+  /** The scrub nurse's last handoff, spoken aloud. */
+  nurse: { id: number; text: string } | null;
 }
 /** A mid-operation complication that triggers once a given pocket has been cleared. */
 export interface Twist {
@@ -650,6 +652,7 @@ export function createState(
     twistsDone: (procedure.twists ?? []).map(() => false),
     activeComplication: null,
     clipAngle: procedure.kind === "aneurysm" ? ANEURYSM_AXIS + 0.75 : 0,
+    nurse: null,
   };
 }
 /** Anaesthetist remark. A key makes it fire once per attempt. */

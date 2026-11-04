@@ -10,6 +10,7 @@ import {
 } from "../game/simulation";
 import { vitalsLevel } from "../game/vitals";
 import { Icon } from "./Icons";
+import { Ecg } from "./Ecg";
 
 export function GameHud({
   view,
@@ -140,40 +141,29 @@ export function GameHud({
       ? "Keep instruments idle while the final check completes."
       : "All checks are ready. Click Examine field to finish the procedure.",
   ];
+  const key = (tool: Tool | null) => (tool ? view.belt.indexOf(tool) + 1 : 0);
   const title = room
     ? view.heldTool
       ? "Approach the microscope"
       : "Choose your procedure"
-    : view.trayView
-      ? view.heldTool
-        ? "Place your tool on the tray"
-        : "Pick up an instrument"
-      : examining
-        ? titles[3]
-        : needsBipolar && !opening
-          ? "Control the bleeding source"
-      : !view.heldTool && required && !(opening && cutReady)
-        ? "Pick up " + TOOLS[required].name
-        : titles[step];
+    : examining
+      ? titles[3]
+      : needsBipolar && !opening
+        ? "Seal the bleeder"
+        : view.heldTool && required && view.heldTool !== required
+          ? `Ask for ${TOOLS[required].name}`
+          : titles[step];
   const detail = room
     ? view.heldTool
       ? "Walk to the patient’s head. Press E to enter surgery."
       : "Walk to the lit case workstation. Click its screen or press E to choose a surgery."
-    : view.trayView
-      ? view.heldTool
-        ? `Set down ${current} to free your hand. One instrument at a time.`
-        : required
-          ? `Choose ${TOOLS[required].name} for the next task.`
-          : "The field is ready. Return to the field to examine it."
-      : examining
-        ? details[3]
-      : !view.heldTool && required && !(opening && cutReady)
-        ? "Press T or click Instrument tray to reach your tools."
-        : view.heldTool && required && view.heldTool !== required
-          ? `Return ${current} to the tray and pick up ${TOOLS[required].name}.`
-          : needsBipolar && !opening
-            ? "Hold bipolar on the marked source until bleeding stops."
-            : details[step];
+    : examining
+      ? details[3]
+      : view.heldTool && required && view.heldTool !== required
+        ? `Press ${key(required)} and the scrub nurse hands you the ${TOOLS[required].name.toLowerCase()}.`
+        : needsBipolar && !opening
+          ? "Hold bipolar on the marked source until the bleeding stops."
+          : details[step];
   const steps = tu
     ? ["Feeders", "Debulk", "Examine"].map((label, i) => ({
         label,
@@ -195,58 +185,33 @@ export function GameHud({
     { label: "Rinse", done: rinsed, active: !opening && !needsBipolar && collectionClear && !rinsed },
     { label: "Examine", done: false, active: !opening && canExamine },
   ];
+  const stepNo = Math.max(0, steps.findIndex((s) => s.active)) + 1;
+  const stepLabel = steps.find((s) => s.active)?.label ?? steps[steps.length - 1].label;
+  const tensionPct = an && an.phase !== "clipped" ? an.tension : 0;
   return (
     <>
-      <section className="objective" aria-live="polite">
-        <h1>{title}</h1>
-        <p>{detail}</p>
-        {!room && (
-          <>
-            <ol className="procedure-steps">
-              {steps.map(({ label, active, done }, i) => (
-                <li
-                  key={label}
-                  className={active ? "current" : done ? "done" : ""}
-                >
-                  <span>
-                    {done ? <Icon name="check" size={13} /> : i + 1}
-                  </span>
-                  <small>{label}</small>
-                </li>
-              ))}
-            </ol>
-            <div className="task-progress">
-              <span>
-                {tu
-                  ? [`Feeders sealed`, `${Math.round(tuResected * 100)}% resected · target ${Math.round(tu.target * 100)}%`, examining ? "Examination in progress" : "Examination not started"][tuStage]
-                  : an
-                  ? ["Tethers released", "Neck freed", "Clip closing", examining ? "Examination in progress" : "Examination not started"][anStage]
-                  : opening
-                  ? "Bone cutting path"
-                  : needsBipolar
-                    ? "Bleeding controlled"
-                  : step === 1
-                    ? `${cleared} / ${view.pockets.length} pockets cleared`
-                    : step === 2
-                      ? `Rinse · target ${Math.round(caseInfo.clarityRequired * 100)}% clarity`
-                      : examining ? "Examination in progress" : "Examination not started"}
-              </span>
-              <strong>{percent}%</strong>
-              <i>
-                <b style={{ width: `${percent}%` }} />
-              </i>
-            </div>
-            {an && an.phase !== "clipped" && (
-              <div className={`tension ${an.phase === "ruptured" ? "ruptured" : an.tension > 0.6 ? "high" : ""}`}>
-                <span>{an.phase === "ruptured" ? "RUPTURED · CLIP THE NECK" : "DOME WALL TENSION"}</span>
-                <i>
-                  <b style={{ width: `${Math.round(an.tension * 100)}%` }} />
-                </i>
-              </div>
-            )}
-          </>
-        )}
-      </section>
+      {room ? (
+        <section className="objective" aria-live="polite">
+          <h1>{title}</h1>
+          <p>{detail}</p>
+        </section>
+      ) : (
+        <section className="obj" aria-live="polite">
+          <small>
+            STEP {stepNo}/{steps.length} · {stepLabel.toUpperCase()}
+          </small>
+          <h1 key={title}>{title}</h1>
+          <i className="hair">
+            <b style={{ width: `${percent}%` }} />
+          </i>
+          {an && an.phase !== "clipped" && (
+            <i className={`hair tension ${an.phase === "ruptured" ? "ruptured" : tensionPct > 0.6 ? "high" : ""}`} title="Dome wall tension">
+              <b style={{ width: `${Math.round(tensionPct * 100)}%` }} />
+            </i>
+          )}
+          <p key={`d-${title}`} className="obj-detail">{detail}</p>
+        </section>
+      )}
       {room ? (
         <>
           <div className="room-crosshair" />
@@ -287,49 +252,6 @@ export function GameHud({
             <Icon name="arrow" size={16} />
           </button>
         </>
-      ) : view.trayView ? (
-        <>
-          <div className="tray-labels">
-            {!view.cameraMoving &&
-              view.traySlots.map((slot, i) => (
-                <button
-                  key={slot.tool}
-                  className={`tray-tool-pick ${view.heldTool === slot.tool ? "empty-slot" : ""} ${required === slot.tool ? "next-tool" : ""}`}
-                  disabled={view.heldTool !== null}
-                  onClick={() => onTool(slot.tool)}
-                  aria-label={`Pick up ${TOOLS[slot.tool].name}`}
-                >
-                  <kbd>{i + 1}</kbd>
-                  <span>
-                    {TOOLS[slot.tool].name}
-                    <small>
-                      {view.heldTool === slot.tool
-                        ? "In your hand"
-                        : view.heldTool
-                          ? "Place your tool first"
-                          : required === slot.tool ? "Next task · pick up" : "Pick up"}
-                    </small>
-                  </span>
-                </button>
-              ))}
-          </div>
-          <div className="tray-controls">
-            {view.heldTool ? (
-              <button className="primary-button" onClick={onPlace}>
-                Place {current}
-                <kbd>E</kbd>
-                <Icon name="arrow" size={16} />
-              </button>
-            ) : (
-              <span className="empty-hand-message">
-                Hand free · choose an instrument
-              </span>
-            )}
-            <button className="secondary-button" onClick={onTray}>
-              Return to field<kbd>T</kbd>
-            </button>
-          </div>
-        </>
       ) : (
         <>
           {opening &&
@@ -354,263 +276,129 @@ export function GameHud({
             )}
           <div className="target-layer">
             {!opening &&
-              !view.cameraMoving &&
               view.guided &&
               view.targets.map((p, i) => (
                 <div
                   key={i}
                   aria-hidden="true"
                   style={{ left: p.x, top: p.y }}
-                  className={`target-marker ${p.remaining <= POCKET_CLEAR_THRESHOLD ? "cleared" : ""}`}
+                  className={`target-ring ${p.remaining <= POCKET_CLEAR_THRESHOLD ? "cleared" : ""}`}
                 >
-                  <span>
-                    {p.remaining <= POCKET_CLEAR_THRESHOLD ? (
-                      <Icon name="check" size={14} />
-                    ) : (
-                      i + 1
-                    )}
-                  </span>
+                  <i />
                   {view.action && p.remaining > POCKET_CLEAR_THRESHOLD && p.remaining < 0.97 && (
                     <small>{Math.round((1 - p.remaining) * 100)}%</small>
                   )}
                 </div>
               ))}
-            {!opening && !view.cameraMoving && view.bleedTarget && view.bleeding >= 0.025 && (
+            {!opening && view.bleedTarget && view.bleeding >= 0.025 && (
               <div
-                className="bleed-marker"
+                className="bleed-ring"
                 style={{ left: view.bleedTarget.x, top: view.bleedTarget.y }}
                 role="img"
                 aria-label={an ? "Ruptured aneurysm. Clip the neck." : "Bleeding source. Use bipolar on the marked point."}
               >
                 <i />
-                <span>{an ? "Ruptured dome" : "Bleeding source"}<small>{an ? "Suction, then clip the neck" : "Use bipolar here"}</small></span>
               </div>
             )}
           </div>
-          {!opening && (
-            <section
-              className={`examine-panel ${canExamine ? "is-ready" : ""} ${examining ? "is-examining" : ""}`}
-              aria-label="Final examination checklist"
-            >
-              <div className="examine-heading">
-                <strong>Final examination</strong>
-                <span>{examining ? "Checking…" : canExamine ? "Ready" : "Preparation"}</span>
-              </div>
-              <ul className="examine-checklist">
-                {(tu
-                  ? [
-                      { done: tu.feeders.every((f) => f.done), label: "Feeding vessels sealed" },
-                      { done: tuResected >= tu.target, label: `Tumour ${Math.round(tuResected * 100)}% removed · target ${Math.round(tu.target * 100)}%` },
-                      { done: bleedingControlled, label: bleedingControlled ? "No active bleeding" : "Control the bleeding with bipolar" },
-                    ]
-                  : an
-                  ? [
-                      { done: an.bridges.every((b) => b.done) && an.dissection >= 0.9, label: "Neck freed" },
-                      { done: an.phase === "clipped", label: "Clip across the neck" },
-                      { done: bleedingControlled, label: bleedingControlled ? "No active bleeding" : "Stop the bleeding with the clip" },
-                    ]
-                  : [
-                  { done: collectionClear, label: `${cleared}/${view.pockets.length} pockets cleared` },
-                  { done: rinsed, label: `Rinsed · ${Math.round(view.clarity * 100)}/${Math.round(caseInfo.clarityRequired * 100)}% clarity` },
-                  { done: bleedingControlled, label: bleedingControlled ? "Bleeding controlled" : "Control bleeding with bipolar" },
-                ]).map(({ done, label }) => (
-                  <li key={label} className={done ? "complete" : ""}>
-                    <span>{done ? <Icon name="check" size={12} /> : <i />}</span>
-                    {label}
-                  </li>
-                ))}
-              </ul>
-              <button
-                className="examine-button"
-                onClick={onInspect}
-                disabled={!canExamine || examining}
-              >
-                {examining ? `Examining · ${percent}%` : "Examine field"}
-                {examining ? <span className="examine-spinner" /> : <kbd>E</kbd>}
+          {!opening && (canExamine || examining) && (
+            <div className="centre-prompt">
+              <button className="prompt" onClick={onInspect} disabled={examining}>
+                {examining ? `EXAMINING ${percent}%` : "EXAMINE FIELD"}
+                {!examining && <kbd>E</kbd>}
               </button>
-              <p>
-                {examining
-                  ? "Leave tools idle. Operating cancels this check."
-                  : canExamine
-                    ? "Start a 2.5-second check with instruments safely lifted."
-                    : "Complete all three checks to examine the field."}
-              </p>
-            </section>
+            </div>
           )}
-          {view.heldTool && !examining && (
-            <aside className="depth-control">
-              <button onClick={onDepth}>
-                <span
-                  className={`status-dot ${view.depthAssist ? "on" : ""}`}
-                />
-                {view.depthAssist ? "Assisted depth" : "Manual depth"}
-                <kbd>Q</kbd>
-              </button>
-              <div
-                className={`clearance ${!opening && view.clearance < 0.035 ? "danger" : ""}`}
-              >
-                <span>TIP CLEARANCE</span>
-                <strong>
-                  {Math.max(-9.9, view.clearance * 25).toFixed(1)}
-                  <small> mm</small>
-                </strong>
-                <div className="clearance-bar">
-                  <i
-                    style={{
-                      width: `${Math.max(0, Math.min(100, (view.clearance / 0.5) * 100))}%`,
-                    }}
-                  />
-                </div>
-              </div>
-              <p>
-                {view.depthAssist
-                  ? opening
-                    ? "Rigid bone · burr removes material"
-                    : "Soft tissue · pressure deforms"
-                  : "Scroll to raise / lower"}
-              </p>
-              {view.depthAssist && Math.abs(view.depthOffset) > 0.005 && (
-                <button className="reset-depth" onClick={onDepth}>
-                  Reset depth trim
-                </button>
-              )}
-            </aside>
-          )}
-          {opening ? (
-            <div className="bone-action">
+          {opening && (
+            <div className="centre-prompt">
               {view.accessPhase === "lifting" ? (
-                <span>Lifting the rigid flap…</span>
+                <span className="prompt-text">Lifting the flap…</span>
               ) : cutReady ? (
-                <button className="primary-button" onClick={onLift}>
-                  Lift bone flap<kbd>E</kbd>
-                  <Icon name="arrow" size={17} />
+                <button className="prompt" onClick={onLift}>
+                  LIFT BONE FLAP<kbd>E</kbd>
                 </button>
-              ) : (
-                <>
-                  <strong>
-                    {!view.heldTool
-                      ? "Your hand is empty"
-                      : view.tool !== "drill"
-                        ? "Pick up the bone burr"
-                        : view.action
-                          ? "Cutting bone"
-                          : "Trace the dotted path"}
-                  </strong>
-                  <span>
-                    {view.heldTool
-                      ? "Hold to drill · release to stop"
-                      : "Open the instrument tray to begin."}
-                  </span>
-                </>
-              )}
+              ) : null}
             </div>
-          ) : !examining && !canExamine ? (
-            <div
-              className={`field-feedback ${view.feedback.kind}`}
-              aria-live="polite"
-            >
-              <span className="feedback-dot" />
-              <div>
-                <strong>
-                  {view.action
-                    ? TOOLS[view.tool].action.toLowerCase()
-                    : urgent
-                      ? view.feedback.title
-                      : !view.heldTool
-                        ? "Your hand is empty"
-                        : "Ready when you are"}
-                </strong>
-                <span>
-                  {view.action
-                    ? view.feedback.title
-                    : urgent
-                      ? view.feedback.detail
-                      : !view.heldTool
-                        ? "Open the tray to pick up a tool."
-                        : "Aim at the field, then hold to operate."}
-                </span>
-              </div>
+          )}
+          {!examining && !canExamine && !(opening && cutReady) && (view.action || urgent) && (
+            <div className={`subtitle field ${view.feedback.kind}`} aria-live="polite">
+              <strong>{view.action ? TOOLS[view.tool].action : view.feedback.title}</strong>
+              <span>{view.action ? view.feedback.title : view.feedback.detail}</span>
             </div>
-          ) : null}
+          )}
+          {view.locked && <div className="reticle" aria-hidden="true" />}
+          {view.canLock && !view.locked && view.status === "running" && (
+            <div className="look-hint">CLICK TO TAKE CONTROL · MOUSE LOOK · W A S D MOVE · Z MICROSCOPE</div>
+          )}
+          <nav className="belt" aria-label="Instruments">
+            {view.belt.map((tool, i) => (
+              <button
+                key={tool}
+                className={`slot ${view.heldTool === tool ? "active" : ""} ${required === tool && view.heldTool !== tool ? "next" : ""}`}
+                disabled={view.swapping}
+                aria-label={`Pick up ${TOOLS[tool].name}`}
+                aria-pressed={view.heldTool === tool}
+                onClick={() => onTool(tool)}
+              >
+                <kbd>{i + 1}</kbd>
+                <ToolGlyph tool={tool} />
+                <span>{TOOLS[tool].name}</span>
+              </button>
+            ))}
+          </nav>
+          {view.nurse && view.swapping && (
+            <div className="nurse" key={view.nurse.id}>
+              NURSE — {view.nurse.text}
+            </div>
+          )}
         </>
       )}
       {view.callout && view.elapsed - view.callout.at < 7 && view.status === "running" && (
-        <div
-          key={view.callout.id}
-          className={`callout ${view.callout.kind}`}
-          role="status"
-        >
-          <small>ANAESTHESIA</small>
+        <div key={view.callout.id} className={`callout subtitle ${view.callout.kind}`} role="status">
+          <small>ANAESTHESIA —</small>
           <span>{view.callout.text}</span>
         </div>
       )}
-      <footer className="hud-bottom">
-        <div className="control-hints">
-          <span>
-            <kbd>{room ? "WASD" : "MOVE"}</kbd>
-            {room ? "Walk" : "Aim"}
-          </span>
-          <span>
-            <kbd>{room ? "MOUSE" : "HOLD"}</kbd>
-            {room ? "Look" : "Operate"}
-          </span>
-          <button onClick={onHelp}>
-            <Icon name="help" size={16} />
-            <span>Help</span>
-          </button>
-        </div>
-        {!room && !view.trayView && (
-          <div className="hand-and-tray">
-            <span>
-              <small>IN HAND</small>
-              <strong>{current || "Empty hand"}</strong>
-            </span>
-            <button onClick={onTray}>
-              Instrument tray<kbd>T</kbd>
-              <Icon name="arrow" size={16} />
+      {room ? (
+        <footer className="hud-bottom">
+          <div className="control-hints">
+            <span><kbd>WASD</kbd>Walk</span>
+            <span><kbd>MOUSE</kbd>Look</span>
+            <button onClick={onHelp}>
+              <Icon name="help" size={16} />
+              <span>Help</span>
             </button>
           </div>
-        )}
-        {room ? (
           <div className="held-instrument">
             <span>{view.heldTool ? "IN HAND" : "HANDS FREE"}</span>
             <strong>{current || "Choose a case at the workstation"}</strong>
           </div>
-        ) : (
-          <div
-            className={`vitals level-${vitalsLevel(view.vitals)}`}
-            aria-label="Simulated patient monitoring"
-            style={{ ["--beat" as string]: `${60 / Math.max(40, view.vitals.hr)}s` }}
-          >
-            <svg viewBox="0 0 48 28" className="ecg">
-              <path d="M0 16h9l3-4 3 4 3-13 4 24 4-14 3 3h19" />
-            </svg>
-            <div className="vital">
-              <small>HR</small>
-              <strong>{Math.round(view.vitals.hr)}</strong>
-            </div>
-            <div className="vital">
-              <small>BP</small>
-              <strong>
-                {Math.round(view.vitals.sys)}/{Math.round(view.vitals.dia)}
-              </strong>
-            </div>
-            <div className="vital">
-              <small>SpO₂</small>
-              <strong>{Math.round(view.vitals.spo2)}%</strong>
-            </div>
-            <div className="vital">
-              <small>LOSS</small>
-              <strong>{Math.round(view.bloodLoss)} ml</strong>
-            </div>
-            {view.injury > 0.01 && (
-              <span className="injury-readout">
-                Tissue injury {Math.round(view.injury * 100)}%
-              </span>
-            )}
+        </footer>
+      ) : (
+        <div className={`vitals-strip level-${vitalsLevel(view.vitals)}`} aria-label="Simulated patient monitoring">
+          <Ecg hr={view.vitals.hr} level={vitalsLevel(view.vitals)} />
+          <div className="readout">
+            <span><small>HR</small><b>{Math.round(view.vitals.hr)}</b></span>
+            <span><small>BP</small><b>{Math.round(view.vitals.sys)}/{Math.round(view.vitals.dia)}</b></span>
+            <span><small>SpO₂</small><b>{Math.round(view.vitals.spo2)}</b></span>
+            {view.bloodLoss > 50 && <span className="loss"><small>LOSS</small><b>{Math.round(view.bloodLoss)}ml</b></span>}
           </div>
-        )}
-      </footer>
+        </div>
+      )}
     </>
+  );
+}
+function ToolGlyph({ tool }: { tool: Tool }) {
+  const d: Record<Tool, string> = {
+    suction: "M4 24 L20 8 Q24 4 28 8 M20 8 L22 6",
+    irrigation: "M6 24 L22 10 M22 10 Q26 6 28 10 M10 26 Q14 22 12 18",
+    bipolar: "M4 26 L18 6 L20 6 M8 28 L22 8 L24 8",
+    drill: "M4 24 L20 12 M20 12 m-4 0 a4 4 0 1 0 8 0 a4 4 0 1 0 -8 0",
+    clip: "M6 26 L14 8 L22 8 L26 26 M14 8 L16 26",
+  };
+  return (
+    <svg viewBox="0 0 32 32" className="glyph" aria-hidden="true">
+      <path d={d[tool]} />
+    </svg>
   );
 }

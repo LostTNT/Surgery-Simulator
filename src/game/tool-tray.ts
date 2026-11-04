@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import type { Tool } from "./simulation";
 export const TRAY_TOOLS: Tool[] = ["drill", "suction", "irrigation", "bipolar"];
-export const CLIP_TRAY_TOOLS: Tool[] = ["suction", "bipolar", "clip"];
-export const TUMOR_TRAY_TOOLS: Tool[] = ["suction", "bipolar"];
+export const CLIP_TRAY_TOOLS: Tool[] = ["bipolar", "suction", "clip"];
+export const TUMOR_TRAY_TOOLS: Tool[] = ["bipolar", "suction"];
 const ALL_TOOLS: Tool[] = [...TRAY_TOOLS, "clip"];
 function layout(tools: Tool[]) {
   const step = tools.length > 4 ? 0.72 : 0.86,
@@ -57,6 +57,9 @@ export class InstrumentTray {
       model.rotation.set(0, 0, 0);
       // The applier lies flat on the tray with the clip open and square.
       model.getObjectByName("shaft")?.rotation.set(0, 0, 0);
+      // Nobody is holding the instruments while they lie on the tray.
+      const glove = model.getObjectByName("glove");
+      if (glove) glove.visible = false;
       model.userData.tool = tool;
       this.models.set(tool, model);
       this.group.add(model);
