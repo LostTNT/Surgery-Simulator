@@ -280,7 +280,8 @@ const operationTimeout = Number(process.env.SUTURE_OPERATION_TIMEOUT || "120000"
     fs.rmSync(artifact("flow-failure"), { force: true });
     console.log(
       `PASS ${caseId} full workflow`,
-      await page.locator(".result-stats").innerText(),
+      (await page.locator(".grade-letter").innerText()).trim(),
+      (await page.locator(".grade-row strong").innerText()).replace(/\s+/g, " "),
     );
     console.log(`Health: ${errors.length} errors, ${warnings.length} browser warnings`);
     for (const warning of [...new Set(warnings)].slice(0, 5))
