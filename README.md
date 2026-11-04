@@ -1,71 +1,73 @@
 # Suture
 
-A browser surgical game with a walkable operating room and four playable fields: pick up tools from a physical tray, carve a bone window, lift the flap, complete the case objectives, rinse, and explicitly examine the field.
+**A browser neurosurgery game.** Read the patient's briefing, scrub in, and keep a steady hand through six different procedures. The patient has a heartbeat, blood pressure and an anaesthetist who talks to you. Your choices change what happens next, and every operation ends with a graded debrief.
 
-Play online: **https://losttnt.github.io/Surgery-Simulator/**. See [deployment](DEPLOYMENT.md) for publishing updates and verification details.
+**Play online: https://losttnt.github.io/Surgery-Simulator/**
 
-```sh
-npm ci
-npm run dev
-```
+![Briefing, field and debrief](docs/screenshots/overview.png)
 
-Requires Node 24 and a WebGL 2 browser. There is no backend or API key.
+> Suture is a game. Its patients are fictional and its procedures are simplified. It is **not** medical training, medical advice or a clinical simulator.
 
-## Procedures
+## The 60-second pitch
 
-| Field | Objective |
-| --- | --- |
-| Instrument lab | Practice opening the window, clearing four pockets and rinsing to 88% clarity. |
-| Case 01 · Extra-axial collection | Clear four pockets with slower aspiration and rinse to 88% clarity. |
-| Case 02 · Focal bleeding control | Stop the marked source with bipolar before suction or rinsing; clear four pockets and rinse to 90% clarity. |
-| Case 03 · Loculated collection washout | Clear six separated pockets and complete a longer rinse to 96% clarity. |
+Most surgery games are one loop with different skins. Suture's cases play differently from each other:
 
-In the room, walk to the lit case workstation and click its monitor or press **E** nearby. Choose a case, then **Prepare & start surgery** to open its field directly. The case workstation is also available from the SUTURE menu. The room uses dim ambient lighting with focused surgical lamps over the patient.
+| Case | What you do | The tense part |
+| --- | --- | --- |
+| **Lab** | Learn the burr, suction, irrigation and bipolar on a practice field. | Nothing is at risk. |
+| **01 · Chronic subdural** | Open the bone, drain an old collection, rinse. | At Attending level the membrane tears; the patient is on a blood thinner. |
+| **02 · Acute bleed** | Find and coagulate the marked source before you do anything else. | A second vessel was hiding under the clot. |
+| **03 · Loculated washout** | Clear six walled-off pockets, then wash out. | A wall between pockets gives way and one refills. |
+| **04 · Aneurysm clipping** | Release two tethers, free the neck, align and close a clip. | Rough handling raises dome tension. If it ruptures you must suction to see, then clip fast, or the patient crashes. |
+| **05 · Tumour resection** | Seal feeding vessels, then debulk to at least 85%. | A green motor-cortex zone. Touch it and the patient's hand pays. Cut past an unsealed feeder and it bleeds. |
+| **06 · Ventricular drain** | Aim a catheter on a CT slice at a swollen ventricle. | Pressure is climbing. The obvious straight line clips a vessel, so you have to angle around it. |
+
+Every case has a **patient briefing with a scan**, three **operating standards** (Resident, Attending, Chief), a **live monitor** (HR, BP, SpO₂, blood loss) driven by what you do, **anaesthetist callouts**, and a **graded debrief** (S to F) covering tissue protection, blood loss, stability, complications handled, and pace or extent of resection. The debrief ends with surgeon's notes that explain what went wrong.
 
 ## Controls
 
-- **Aim and hold:** point directly at the field; hold the left mouse button or touch and hold to operate. The burr removes actual bone geometry. Follow the dotted cutting path, then click **Lift bone flap** or press **E**.
-- **Assisted depth:** follows the current 3D surface and lifts on release. Scroll down/up to trim depth. Click Reset depth trim to restore it.
-- **Manual depth:** press **Q** or use Settings. Scroll or **F/R** lower/raise the tool. **Shift** slows the hand. Full shaft and tissue collisions apply in manual mode.
-- **Tools and tray:** **T** pans between the patient and a nearby sterile tray. You hold one tool at a time. Place the current tool on the tray (click **Place**, press **E**, or click the tray surface), then click a physical instrument or its label to pick it up. At the tray, **1/2/3/4** pick up burr/suction/irrigation/bipolar when your hand is free. The camera returns to the field after pickup. Bipolar on healthy tissue causes injury.
-- **Examine field:** clear every numbered pocket, reach the case's rinse target, and control bleeding. The final examination checklist shows what remains. Click **Examine field** or press **E** at the field to start a 2.5-second check with the instrument safely lifted. Releasing a tool does not start the check. Operating or returning to the tray cancels it; pause freezes it.
-- **Room:** **WASD** walks. Click the case monitor or press **E** nearby to select a procedure. Clicking elsewhere captures the mouse for looking; **E** also collects an instrument or enters the microscope. Drag-look and arrow keys are available when pointer capture is unavailable. **Enter operating room** begins exploration; **Start surgery** opens the field directly.
-- **Escape/P:** pause. Focus loss also pauses and releases the instrument. **+/−** adjust the microscope zoom.
+| Input | Action |
+| --- | --- |
+| Mouse | Aim the instrument |
+| Hold left button | Operate the held instrument |
+| `T` | Open the instrument tray (one tool in hand at a time) |
+| Scroll | Trim tool depth (assisted mode) |
+| `Shift` | Fine movement |
+| `Q` | Toggle manual depth (full shaft contact) |
+| `A` / `D` | Rotate the aneurysm clip (Case 04) |
+| `Space` / `R` / `E` | Advance / withdraw / secure the catheter (Case 06) |
+| `E` | Lift the bone flap, or begin the final examination |
+| `Esc` | Pause |
 
-The game includes local best scores, stage retries, help, optional target guides, sound, fullscreen and graphics settings. High adds ambient occlusion and soft shadows; slow devices automatically switch to Balanced. Graphics can also be selected explicitly.
+The room is walkable (`WASD`), or choose **Go straight to surgery**.
 
-## Development and verification
+## Run it locally
 
 ```sh
-npm test
+npm ci
+npm run dev       # http://localhost:5173
+npm test          # unit tests for the game rules
 npm run build
-npm run qa
-npm run qa -- --case=case02
-npm run qa -- --case=case03
 ```
 
-For production subpath testing:
+Requires Node 22+ and a WebGL 2 browser. There is no backend and no API key.
 
-```sh
-VITE_BASE_PATH=/Surgery-Simulator/ npm run build
-VITE_BASE_PATH=/Surgery-Simulator/ npm run preview -- --port 4174
-node tools/qa-hosting.cjs http://localhost:4174/Surgery-Simulator/
-node tools/qa-hosting.cjs http://localhost:4174/Surgery-Simulator/ --case=case02
-```
+## How it is built
 
-The browser checks use local Chromium and real visible controls, including case preparation, cutting, lifting, tool returns/handoffs, bipolar in Case 02, suction, rinsing, the explicit examination and the result screen. `--case=lab|case01|case02|case03` selects a field; `SUTURE_CASE` and `SUTURE_URL` are environment alternatives. See [QA](QA.md) for recorded results and limits and [design](DESIGN.md) for references and deliberate 3D adaptations.
+- **Three.js + React + TypeScript + Vite.** Real 3D tissue, bone carving with a height field, localized soft-tissue deformation and swept tool collision.
+- **Game rules are pure functions.** `src/game/simulation.ts` holds the state machine; the engine only feeds it contact data. That is why 70+ unit tests cover rupture, clipping, resection, drain navigation, vitals and grading without a browser.
+- `src/game/vitals.ts`, `grading.ts`, `patients.ts`: monitor model, grading, patient content.
+- `src/game/aneurysm.ts`, `tumor.ts`: procedural 3D for the new cases. `src/ui/DrainGame.tsx`: the navigation puzzle.
+- Browser QA drives the real UI with Playwright: `npm run qa`, `node tools/qa-aneurysm.cjs`.
 
-## Implementation
+## Honest limits
 
-- `src/game/tool-tray.ts`: physical tray, instrument slots and 3D picking.
-- `src/game/bone-cut.ts`, `access.ts`: local material removal, flap, burr and debris.
-- `src/game/soft-tissue.ts`: localized damped tissue deformation.
-- `src/game/materials.ts`: physical tissue material and wrap-light shader.
-- `src/game/engine.ts`: scene, input, rendering, camera, state publication.
-- `src/game/simulation.ts`, `collision.ts`: objectives, injury, bleeding, swept collisions and checkpoints.
-- `src/game/room.ts`, `scene.ts`: room and operating field.
-- `src/App.tsx`, `src/ui/GameHud.tsx`: menus and live game controls.
+- Fun and learnability have **not** been tested with people yet. Tests establish that the rules work, not that they are enjoyable.
+- Anatomy, procedures, vitals and material responses are game mechanics. Nothing here has been reviewed by a clinician.
+- Performance was measured with software rendering only; GPU frame rate is untested.
 
-The procedure, anatomy, patient monitoring and material response are simplified game mechanics. This is not a medical training product. Skin access, anaesthesia, dura dissection, closure and full tissue resection are omitted.
+## Credits and licences
 
-The modified atlas mesh derives from FreeSurfer fsaverage5 through Nilearn. Required notices and modification details remain in [asset provenance](public/ASSETS.md) and [FreeSurfer terms](public/licenses/FREESURFER.txt).
+The cortical surface is a modified FreeSurfer *fsaverage5* surface obtained through Nilearn. Required notices are in [`public/ASSETS.md`](public/ASSETS.md) and [`public/licenses/`](public/licenses). Instruments, tray, room, aneurysm, tumour and scan graphics are original to this project. No endorsement by MGH, FreeSurfer or Nilearn is claimed.
+
+More: [Design notes](DESIGN.md) · [QA history](QA.md) · [Deployment](DEPLOYMENT.md) · [Game plan](GAME_PLAN.md)

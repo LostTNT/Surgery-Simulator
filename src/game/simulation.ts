@@ -249,13 +249,30 @@ export interface GameState {
   aneurysm: AneurysmState | null;
   tumor: TumorState | null;
   drain: DrainState | null;
+  twistsDone: boolean[];
   /** Name of the unresolved complication, if any (used to count handled ones). */
   activeComplication: string | null;
   /** Orientation of the held clip in radians. */
   clipAngle: number;
 }
+/** A mid-operation complication that triggers once a given pocket has been cleared. */
+export interface Twist {
+  after: number;
+  kind: "rebleed" | "refill";
+  /** Lowest operating standard that sees it. Resident never does. */
+  from: "attending" | "chief";
+  /** rebleed: where it bleeds. */
+  position?: Vec;
+  /** refill: which pocket re-collects, and to what level. */
+  pocket?: number;
+  amount?: number;
+  say: string;
+  title: string;
+  detail: string;
+}
 export interface ProcedureCase {
   kind: CaseKind;
+  twists?: Twist[];
   /** The bone window is already open: the resident has completed access. */
   preOpened?: boolean;
   name: string;
@@ -307,6 +324,26 @@ export const CASES: Record<CaseId, ProcedureCase> = {
   case01: {
     kind: "washout",
     name: "Extra-axial collection",
+    twists: [
+      {
+        after: 1,
+        kind: "rebleed",
+        from: "attending",
+        position: [0.52, 0.2, 0],
+        say: "The old membrane is oozing. He is on a blood thinner. Control it.",
+        title: "The membrane is bleeding.",
+        detail: "Pick up bipolar and seal the marked point before you continue.",
+      },
+      {
+        after: 3,
+        kind: "rebleed",
+        from: "chief",
+        position: [-0.15, 0.5, 0],
+        say: "Another bleeder along the membrane. Keep ahead of it.",
+        title: "A second membrane bleeder.",
+        detail: "Seal the marked point with bipolar.",
+      },
+    ],
     label: "Case 01",
     difficulty: "Introductory",
     duration: "PREPARED FIELD",
@@ -328,6 +365,27 @@ export const CASES: Record<CaseId, ProcedureCase> = {
   case02: {
     kind: "washout",
     name: "Focal bleeding control",
+    twists: [
+      {
+        after: 2,
+        kind: "rebleed",
+        from: "attending",
+        position: [-0.1, -0.5, 0],
+        say: "There was a second vessel under the clot. It is bleeding now.",
+        title: "A second source was hiding.",
+        detail: "It was under the clot. Seal the newly marked source with bipolar.",
+      },
+      {
+        after: 3,
+        kind: "refill",
+        from: "chief",
+        pocket: 0,
+        amount: 0.5,
+        say: "Blood is tracking back into the first pocket.",
+        title: "The first pocket is refilling.",
+        detail: "Suction it again, then finish rinsing.",
+      },
+    ],
     label: "Case 02",
     difficulty: "Intermediate",
     duration: "BLEEDING CONTROL",
@@ -355,6 +413,27 @@ export const CASES: Record<CaseId, ProcedureCase> = {
   case03: {
     kind: "washout",
     name: "Loculated collection washout",
+    twists: [
+      {
+        after: 2,
+        kind: "refill",
+        from: "attending",
+        pocket: 0,
+        amount: 0.55,
+        say: "A septation gave way. Pus is draining into the first pocket again.",
+        title: "A wall between pockets gave way.",
+        detail: "Pocket 1 has re-filled. Clear it again before you rinse.",
+      },
+      {
+        after: 4,
+        kind: "rebleed",
+        from: "chief",
+        position: [-0.3, -0.2, 0],
+        say: "The inflamed surface is bleeding. Seal it.",
+        title: "Inflamed tissue is bleeding.",
+        detail: "Use bipolar on the marked point.",
+      },
+    ],
     label: "Case 03",
     difficulty: "Intermediate",
     duration: "SIX-POCKET WASHOUT",
@@ -565,6 +644,7 @@ export function createState(
     aneurysm: procedure.kind === "aneurysm" ? createAneurysm() : null,
     tumor: procedure.kind === "tumor" ? createTumor() : null,
     drain: procedure.kind === "drain" ? createDrain() : null,
+    twistsDone: (procedure.twists ?? []).map(() => false),
     activeComplication: null,
     clipAngle: procedure.kind === "aneurysm" ? ANEURYSM_AXIS + 0.75 : 0,
   };
@@ -970,6 +1050,46 @@ function stepDrain(s: GameState, dt: number) {
     for (const h of d.hazards) h.hit = false;
   }
 }
+const TIER = { resident: 0, attending: 1, chief: 2 } as const;
+/** Fire any complication whose trigger pocket has just been cleared. */
+function stepTwists(s: GameState) {
+  const twists = CASES[s.caseId].twists;
+  if (!twists || !s.procedureStarted) return;
+  // A refilled pocket that is cleared again counts as a handled complication.
+  if (s.activeComplication?.startsWith("refill:")) {
+    const idx = Number(s.activeComplication.slice(7));
+    if ((s.pockets[idx]?.remaining ?? 0) <= POCKET_CLEAR_THRESHOLD) {
+      s.complicationsHandled++;
+      s.activeComplication = null;
+      logEvent(s, "resolved", "The refilled pocket was cleared again");
+    }
+  }
+  twists.forEach((tw, i) => {
+    if (s.twistsDone[i]) return;
+    if (TIER[s.difficulty] < TIER[tw.from]) return;
+    if ((s.pockets[tw.after]?.remaining ?? 1) > POCKET_CLEAR_THRESHOLD) return;
+    if (s.bleeding > BLEEDING_CONTROL_THRESHOLD || s.activeComplication) return;
+    s.twistsDone[i] = true;
+    s.complicationsTriggered++;
+    s.action = false;
+    cancelInspection(s);
+    logEvent(s, "complication", tw.title);
+    if (tw.kind === "rebleed" && tw.position) {
+      s.bleedPosition = [...tw.position];
+      s.bleeding = 0.4;
+      s.sourceControlled = false;
+      s.activeComplication = "rebleed";
+    } else if (tw.kind === "refill" && tw.pocket !== undefined) {
+      const p = s.pockets[tw.pocket];
+      if (p) p.remaining = Math.max(p.remaining, tw.amount ?? 0.5);
+      s.clarity *= 0.6;
+      s.stage = Math.min(s.stage, 1);
+      s.activeComplication = `refill:${tw.pocket}`;
+    }
+    setFeedback(s, tw.title, tw.detail, "danger");
+    say(s, tw.say, "warning");
+  });
+}
 /** Blood loss, monitor values, remarks and collapse. Returns true if the patient failed. */
 function stepPhysiology(s: GameState, dt: number): boolean {
   const bleeding = s.bleeding > 0.02;
@@ -1038,6 +1158,7 @@ export function tick(s: GameState, c: Contact, dt: number) {
     stepDrain(s, dt);
     return;
   }
+  stepTwists(s);
   if (s.status !== "running") return;
   const active = s.action && c.inField;
   if (active) s.activeTime += dt;
@@ -1197,7 +1318,13 @@ export function tick(s: GameState, c: Contact, dt: number) {
         }
         if (s.activeComplication) {
           s.complicationsHandled++;
-          logEvent(s, "resolved", "Bleeding from a feeding vessel controlled");
+          logEvent(
+            s,
+            "resolved",
+            s.activeComplication === "feeder"
+              ? "Bleeding from a feeding vessel controlled"
+              : "The new bleeding point was controlled",
+          );
           s.activeComplication = null;
           const f = s.tumor?.feeders.find((x) => x.bleeding);
           if (f) {

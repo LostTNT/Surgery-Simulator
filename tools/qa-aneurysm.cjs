@@ -86,13 +86,11 @@ const dpr = Number(process.env.SUTURE_DPR || "0.5");
       return false;
     });
     await page.screenshot({ path: "/tmp/suture-qa/case04-aligned.png" });
-    await until("clip", async () => {
-      await page.mouse.move(p.x, p.y);
-      await page.mouse.down();
-      await page.waitForTimeout(2500);
-      await page.mouse.up();
-      return (await an()).phase === "clipped";
-    });
+    // Clip closing progress decays on release, so hold continuously like a player would.
+    await page.mouse.move(p.x, p.y);
+    await page.mouse.down();
+    await until("clip", async () => (await an()).phase === "clipped");
+    await page.mouse.up();
     console.log("Clipped");
     await page.screenshot({ path: "/tmp/suture-qa/case04-clipped.png" });
     await page.keyboard.press("t");

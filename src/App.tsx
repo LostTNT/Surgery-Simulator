@@ -6,6 +6,8 @@ import { Icon } from "./ui/Icons";
 import { Briefing } from "./ui/Briefing";
 import { Debrief } from "./ui/Debrief";
 import { DrainGame } from "./ui/DrainGame";
+import { letterFor } from "./game/grading";
+import { PATIENTS } from "./game/patients";
 import { DIFFICULTIES, type Difficulty } from "./game/vitals";
 
 type Overlay = "none" | "cases" | "briefing" | "guide" | "settings";
@@ -183,7 +185,7 @@ export default function App() {
                 : "Your operating room.";
   return (
     <main
-      className={`game ${menuOpen ? "has-menu" : "is-playing"} ${view.location === "room" ? "in-room" : ""} ${overlay === "cases" ? "workstation-open" : ""}`}
+      className={`game ${menuOpen ? "has-menu" : "is-playing"} ${view.location === "room" ? "in-room" : ""} ${overlay === "cases" ? "workstation-open" : ""} ${overlay === "briefing" ? "briefing-open" : ""}`}
     >
       <div ref={field} className="operative-field" />
       <div className="lens-shade" aria-hidden="true" />
@@ -409,12 +411,12 @@ export default function App() {
                     <span>
                       <strong>{CASES[id].name}</strong>
                       <small>
-                        {CASES[id].difficulty} · {CASES[id].kind === "washout" ? `${CASES[id].pockets.length} pockets` : CASES[id].duration.toLowerCase()}
+                        {id === "lab" ? "Practice" : `${PATIENTS[id].name}, ${PATIENTS[id].age}`} · {CASES[id].difficulty} · {CASES[id].kind === "washout" ? `${CASES[id].pockets.length} pockets` : CASES[id].duration.toLowerCase()}
                       </small>
                     </span>
                     {progress[id] !== undefined ? (
                       <span className="case-score">
-                        Best {progress[id]}
+                        <b className={`mini-grade grade-${letterFor(progress[id]!)}`}>{letterFor(progress[id]!)}</b>
                         <Icon name="check" size={14} />
                       </span>
                     ) : (
@@ -485,24 +487,47 @@ export default function App() {
                 ))}
               </div>
               <div className="guide-note">
-                <strong>Your procedure</strong>
+                <strong>Every case</strong>
                 <ol className="guide-procedure">
-                  <li>Trace the dotted bone path with the burr, then lift the flap.</li>
-                  <li>If bleeding is marked, use bipolar on that source first.</li>
-                  <li>Use suction on every numbered fluid pocket.</li>
-                  <li>Rinse with irrigation until the clarity target is met.</li>
-                  <li>Click Examine field, then leave the tools idle for 2.5 seconds.</li>
+                  <li>Read the briefing and choose an operating standard.</li>
+                  <li>Scrub in. Pick up instruments at the tray with T, one at a time.</li>
+                  <li>Watch the monitor: bleeding and injury move the patient's vitals, and the anaesthetist will tell you.</li>
+                  <li>Finish with Examine field. You are graded on tissue protection, blood loss, stability, complications and pace.</li>
                 </ol>
+                <strong>Washout cases (Lab, 01 to 03)</strong>
                 <p>
-                  The Examine checklist shows exactly what is left. Releasing
-                  a tool stops operating; it does not start the final examination.
+                  Trace the bone path with the burr and lift the flap. Seal marked bleeders with bipolar,
+                  clear every numbered pocket with suction, rinse to the clarity target, then examine.
+                  Complications such as re-bleeds and refilling pockets appear at Attending and Chief.
+                </p>
+                <strong>Case 04 · Aneurysm</strong>
+                <p>
+                  Release the two tethers with bipolar, free the neck with gentle suction, then
+                  align the clip with A / D and hold to close. Fast hands near the dome raise wall
+                  tension. If it ruptures, suction to see the neck and clip it quickly.
+                </p>
+                <strong>Case 05 · Tumour</strong>
+                <p>
+                  Seal the three feeding vessels, then debulk with suction. Stay out of the green
+                  motor area. Cutting past an unsealed feeder makes it bleed.
+                </p>
+                <strong>Case 06 · Ventricular drain</strong>
+                <p>
+                  Aim from the burr hole with the pointer, hold Space or the mouse to advance, and
+                  press E when fluid returns. Avoid the bright vessel and the midline.
                 </p>
                 <p>
-                  Bone is rigid and can be carved away. Tissue yields under
-                  pressure and rebounds. These are simplified game material
-                  responses. Manual depth enables full tissue and shaft contact.
-                  Lower gently with the scroll wheel or F; withdraw with R.
-                  Bipolar on healthy tissue causes injury in either mode.
+                  Bone is rigid and can be carved away; tissue yields and rebounds. Manual depth (Q)
+                  adds full shaft contact. Everything here is a simplified game response.
+                </p>
+              </div>
+              <div className="guide-note about">
+                <strong>About</strong>
+                <p>
+                  Suture is an educational game about neurosurgery. It is not medical training,
+                  advice or a clinical simulator. Patients are fictional and the procedures are
+                  simplified. The cortical surface is derived from FreeSurfer fsaverage5 through
+                  Nilearn; notices are in the project's licenses folder.
                 </p>
               </div>
             </>
@@ -572,7 +597,13 @@ export default function App() {
                 {failed
                   ? view.events.filter((e) => e.type === "failure").at(-1)
                       ?.detail
-                  : "Collection cleared. Field rinsed. Final inspection complete."}
+                  : view.aneurysm
+                    ? "The aneurysm is clipped and the artery is open. Final inspection complete."
+                    : view.tumor
+                      ? "The tumour is debulked and the feeders are sealed. Final inspection complete."
+                      : view.drain
+                        ? "The drain is in place and the pressure has settled."
+                        : "Collection cleared. Field rinsed. Final inspection complete."}
               </p>
               <Debrief view={view} best={progress[view.caseId]}>
               <button
@@ -581,6 +612,16 @@ export default function App() {
               >
                 {failed ? "Try again" : "Play again"}
                 <Icon name="arrow" />
+              </button>
+              <button
+                className="secondary-button"
+                onClick={() => {
+                  engine.current?.pause();
+                  open("cases");
+                }}
+              >
+                Choose another case
+                <Icon name="arrow" size={17} />
               </button>
               {!failed && view.caseId === "lab" && (
                 <button

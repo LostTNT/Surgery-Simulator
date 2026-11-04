@@ -2295,3 +2295,18 @@ input {
 }
 .drain-info.objective::before, .drain-info.objective::after { display: none; }
 .icp > div { display: grid; gap: 4px; }
+
+/* ---- Briefing controls, chooser grades ---- */
+.briefing-controls { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12px; color: #aac0b2; }
+.briefing-controls span { display: inline-flex; align-items: center; gap: 6px; }
+.briefing-controls kbd { padding: 2px 6px; border: 1px solid #94b29e55; border-radius: 4px; color: #d5e3d9; }
+.case-score { display: inline-flex; align-items: center; gap: 6px; }
+.mini-grade { display: inline-grid; place-items: center; width: 22px; height: 22px; border: 1.5px solid; border-radius: 50%; font-size: 12px; font-weight: 500; }
+.workstation-screen .case-list { max-height: 38vh; overflow-y: auto; scrollbar-width: thin; }
+@media (max-width: 900px) {
+  .drain { grid-template-rows: none; grid-auto-rows: auto; align-content: start; }
+  .drain-info .icp { margin-top: 4px; }
+}
+@media (max-width: 760px) {
+  .briefing-open .menu-bottom { display: none; }
+}

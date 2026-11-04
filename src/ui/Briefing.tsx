@@ -4,6 +4,12 @@ import { DIFFICULTIES, type Difficulty } from "../game/vitals";
 import { Icon } from "./Icons";
 import { ScanImage } from "./ScanImage";
 
+const CONTROLS: Record<string, [string, string][]> = {
+  washout: [["MOUSE", "Aim"], ["HOLD", "Operate"], ["T", "Tool tray"], ["SCROLL", "Depth"], ["SHIFT", "Fine"]],
+  aneurysm: [["MOUSE", "Aim"], ["HOLD", "Operate"], ["T", "Tool tray"], ["A / D", "Rotate clip"], ["SHIFT", "Fine"]],
+  tumor: [["MOUSE", "Aim"], ["HOLD", "Operate"], ["T", "Tool tray"], ["SCROLL", "Depth"], ["SHIFT", "Fine"]],
+  drain: [["MOUSE", "Aim"], ["SPACE", "Advance"], ["R", "Withdraw"], ["E", "Secure"]],
+};
 export function Briefing({
   caseId,
   difficulty,
@@ -50,6 +56,14 @@ export function Briefing({
           <div className="briefing-stakes">
             <span>WHAT IS AT STAKE</span>
             <p>{p.stakes}</p>
+          </div>
+          <div className="briefing-controls" aria-label="Controls">
+            {CONTROLS[c.kind].map(([k, v]) => (
+              <span key={k}>
+                <kbd>{k}</kbd>
+                {v}
+              </span>
+            ))}
           </div>
         </div>
         <ScanImage kind={p.scan} caption={p.scanCaption} />

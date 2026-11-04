@@ -153,7 +153,7 @@ test("irrigation never repairs existing injury", () => {
   assert.equal(s.clarity, 1);
 });
 test("a prepared source starts only when the field opens and cannot be reseeded", () => {
-  const s = createState("case02");
+  const s = createState("case02", true, 0, "resident");
   assert.equal(s.bleeding, 0);
   assert.equal(s.bleedPosition, null);
   assert.equal(s.procedureStarted, false);
@@ -168,7 +168,7 @@ test("a prepared source starts only when the field opens and cannot be reseeded"
   assert.equal(s.events.filter((e) => e.type === "source").length, 1);
 });
 test("focal bleeding case requires bipolar control before fluid removal and rinsing", () => {
-  const s = createState("case02");
+  const s = createState("case02", true, 0, "resident");
   s.status = "running";
   initializeProcedure(s);
   s.action = true;
@@ -196,7 +196,7 @@ test("focal bleeding case requires bipolar control before fluid removal and rins
   assert.equal(s.status, "success");
 });
 test("loculated washout offers six separated pockets and a longer final rinse", () => {
-  const s = createState("case03");
+  const s = createState("case03", true, 0, "resident");
   s.status = "running";
   initializeProcedure(s);
   assert.equal(s.pockets.length, 6);
@@ -217,7 +217,7 @@ test("loculated washout offers six separated pockets and a longer final rinse", 
   assert.equal(s.status, "success");
 });
 test("examination checks every pocket rather than averaged removal progress", () => {
-  const s = createState("case03");
+  const s = createState("case03", true, 0, "resident");
   s.status = "running";
   s.stage = 1;
   s.clarity = 1;
@@ -232,7 +232,7 @@ test("examination checks every pocket rather than averaged removal progress", ()
   assert.equal(beginInspection(s), true);
 });
 test("examination rejects insufficient clarity and uncontrolled bleeding", () => {
-  const s = createState("case01");
+  const s = createState("case01", true, 0, "resident");
   s.status = "running";
   s.pockets.forEach((p) => (p.remaining = 0));
   s.clarity = 0.8;
