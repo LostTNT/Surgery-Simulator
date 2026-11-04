@@ -61,14 +61,14 @@ export interface AneurysmState {
   clipProgress: number;
   attempts: number;
 }
-export const ANEURYSM_AXIS = 0.894;
+export const ANEURYSM_AXIS = 1.896;
 export function createAneurysm(): AneurysmState {
   const axis = ANEURYSM_AXIS,
     ax = Math.cos(axis),
     ay = Math.sin(axis),
     px = -ay,
     py = ax,
-    neck: [number, number] = [0.22, -0.1];
+    neck: [number, number] = [0.323, 0.458];
   const dome: [number, number] = [neck[0] + 0.17 * px, neck[1] + 0.17 * py];
   return {
     dome,
