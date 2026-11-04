@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-const latex = new THREE.MeshPhysicalMaterial({
+export const latex = new THREE.MeshPhysicalMaterial({
   color: 0xe0d0ae,
   roughness: 0.34,
   clearcoat: 0.45,
@@ -47,23 +47,28 @@ export function addGlove(tool: THREE.Object3D, along = 0.78) {
     m.castShadow = true;
     return m;
   };
-  const palm = capsule(r, r * 1.5, latex);
-  palm.scale.set(1, 1, 0.9);
+  const palm = capsule(r * 0.82, r * 1.1, latex);
+  palm.scale.set(1, 1.05, 0.78);
   hand.add(palm);
-  // Fingers wrapped over the grip, thumb along the side.
+  // Four fingers curl over the grip in two segments each; the index sits furthest forward.
   for (let i = 0; i < 4; i++) {
-    const f = capsule(r * 0.34, r * 0.9, latex);
-    f.rotation.x = 0;
-    f.position.set(r * 0.5 - i * r * 0.04, r * 0.86, (i - 1.5) * r * 0.55);
-    f.rotation.set(0, 0, Math.PI / 2 + 0.25);
-    hand.add(f);
-    const k = new THREE.Mesh(new THREE.SphereGeometry(r * 0.26, 12, 10), knuckle);
-    k.position.set(-r * 0.28, r * 0.9, (i - 1.5) * r * 0.55);
+    const z = (i - 1.5) * r * 0.42,
+      len = r * (1.0 - Math.abs(i - 1) * 0.06 + (i === 3 ? -0.18 : 0));
+    const proximal = capsule(r * 0.2, len * 0.8, latex);
+    proximal.position.set(r * 0.55, r * 0.58, z);
+    proximal.rotation.set(0, 0, Math.PI / 2 - 0.55);
+    hand.add(proximal);
+    const distal = capsule(r * 0.17, len * 0.6, latex);
+    distal.position.set(r * 0.38, r * 1.0, z);
+    distal.rotation.set(0, 0, Math.PI / 2 - 1.5);
+    hand.add(distal);
+    const k = new THREE.Mesh(new THREE.SphereGeometry(r * 0.2, 12, 10), knuckle);
+    k.position.set(r * 0.12, r * 0.42, z);
     hand.add(k);
   }
-  const thumb = capsule(r * 0.32, r * 1.1, latex);
-  thumb.position.set(-r * 0.2, -r * 0.55, r * 0.95);
-  thumb.rotation.set(0.5, 0.2, Math.PI / 2 - 0.2);
+  const thumb = capsule(r * 0.22, r * 0.9, latex);
+  thumb.position.set(r * 0.3, -r * 0.5, r * 0.62);
+  thumb.rotation.set(0.5, 0.3, Math.PI / 2 + 0.35);
   hand.add(thumb);
   // Wrist cuff and gowned forearm to the edge of the frame.
   const wrist = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.95, r * 1.0, r * 0.7, 20), cuff);

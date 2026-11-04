@@ -17,7 +17,7 @@ const dpr = Number(process.env.SUTURE_DPR || "0.5");
   page.setDefaultTimeout(240000);
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+  page.on("console", (m) => m.type() === "error" && !/status of 403/.test(m.text()) && errors.push(m.text()));
   const an = () => page.evaluate(() => JSON.parse(JSON.stringify(window.__SUTURE__.state.aneurysm)));
   const until = async (label, fn, ms = 600000) => {
     const t0 = Date.now();

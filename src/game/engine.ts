@@ -12,7 +12,7 @@ import { SSAOPass } from "three/addons/postprocessing/SSAOPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { BokehPass } from "three/addons/postprocessing/BokehPass.js";
-import { addGlove } from "./gloves";
+import { addGlove, latex as gloveLatex } from "./gloves";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { gradeShader } from "./grade";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
@@ -44,6 +44,8 @@ import {
   type Contact,
 } from "./simulation";
 
+const CLEAN_GLOVE = new THREE.Color(0xe0d0ae),
+  BLOODY_GLOVE = new THREE.Color(0x6b2a24);
 const DEATH = /pressure collapsed|blood was lost|herniat|bleeding source/i;
 export interface Snapshot extends GameState {
   loaded: boolean;
@@ -1056,6 +1058,10 @@ export class Engine {
         this.dirty = true;
       }
     }) as EventListener);
+    listen(document, "pointerlockerror", (() => {
+      this.lockFailed = true;
+      this.emit();
+    }) as EventListener);
     listen(document, "pointerlockchange", (() => {
       this.locked = document.pointerLockElement === canvas;
       if (this.state.status === "running" && !document.pointerLockElement && this.canLock)
@@ -1292,6 +1298,8 @@ export class Engine {
     const delta = Math.min(frameDelta, 0.1);
     this.last = now;
     if (this.loaded) {
+      // The mouse must be free the moment the operation stops, so result buttons can be clicked.
+      if (this.state.status !== "running" && document.pointerLockElement) document.exitPointerLock();
       if (this.arrival) {
         this.stepArrival();
         this.dirty = true;
@@ -1465,6 +1473,8 @@ export class Engine {
           }
           if (this.trayView) model.position.set(0.7, -2.5, 1.6);
           else model.position.copy(this.tip).add(new THREE.Vector3(0.6 * swapOffset, -1.0 * swapOffset, 0.1 * swapOffset));
+          // The glove stains as the patient loses blood.
+          gloveLatex.color.lerpColors(CLEAN_GLOVE, BLOODY_GLOVE, Math.min(1, this.state.bloodLoss / 420));
           const bloodTip = (model.getObjectByName("shaft") ?? model).getObjectByName("bloodTip");
           if (bloodTip) {
             const amount = Math.min(1, this.state.bloodLoss / 160 + this.state.bleeding * 0.4);
