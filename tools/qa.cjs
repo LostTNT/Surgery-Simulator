@@ -226,7 +226,7 @@ const operationTimeout = Number(process.env.SUTURE_OPERATION_TIMEOUT || "120000"
     }
     await page.mouse.up();
     await page
-      .getByRole("heading", { name: "Rinse the field", exact: true })
+      .getByRole("heading", { name: /Rinse the field|Ask for Irrigation/ })
       .waitFor();
     await assertExaminationBlocked("Cleared pockets still require the rinse target");
     console.log("Examination correctly blocked until rinse target is met");

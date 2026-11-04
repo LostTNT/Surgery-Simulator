@@ -171,7 +171,7 @@ export class Engine {
     this.renderer.setClearColor(0x081414);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.88;
+    this.renderer.toneMappingExposure = 1.0;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.domElement.setAttribute(
@@ -194,7 +194,7 @@ export class Engine {
       maxblur: 0.0065,
     });
     this.composer.addPass(this.bokeh);
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.28, 0.6, 0.86);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.34, 0.35, 0.92);
     this.composer.addPass(this.bloom);
     this.grade = new ShaderPass(gradeShader);
     this.composer.addPass(this.grade);
@@ -208,10 +208,11 @@ export class Engine {
     pmrem.dispose();
     room.dispose();
     this.cleanups.push(() => env.dispose());
-    this.scene.environmentIntensity = 0.38;
-    this.scene.add(new THREE.HemisphereLight(0xdce9ef, 0x25312c, 0.48));
-    const light = new THREE.SpotLight(0xfff4e7, 80, 15, Math.PI / 7, 0.48, 2);
-    light.position.set(-0.6, -1, 5.5);
+    this.scene.environmentIntensity = 0.2;
+    this.scene.add(new THREE.HemisphereLight(0x8fb3c8, 0x0e1413, 0.16));
+    // One hard, warm operating lamp: the head sits in a pool of light, the room falls away.
+    const light = new THREE.SpotLight(0xfff0dc, 230, 18, Math.PI / 8, 0.38, 2);
+    light.position.set(-1.8, -1.6, 7.4);
     light.target.position.set(0, 0, 0);
     light.castShadow = true;
     light.shadow.mapSize.set(2048, 2048);
@@ -219,7 +220,7 @@ export class Engine {
     light.shadow.radius = 3;
     light.shadow.bias = -0.0005;
     this.scene.add(light, light.target);
-    const fill = new THREE.DirectionalLight(0xc0e2ed, 0.32);
+    const fill = new THREE.DirectionalLight(0x9fc4dc, 0.12);
     fill.position.set(3, 2, 4);
     this.scene.add(fill);
     this.observer = new ResizeObserver(() => this.resize());
@@ -430,7 +431,13 @@ export class Engine {
       burr.rotation.set(0, -0.85, -0.48);
       this.tools.drill = burr;
       this.scene.add(burr);
-      for (const tool of Object.values(this.tools)) if (tool) addGlove(tool.getObjectByName("shaft") ?? tool);
+      for (const [name, tool] of Object.entries(this.tools))
+        if (tool) {
+          // Instruments were modelled small: a real bipolar is about 20 cm.
+          if (name === "suction" || name === "irrigation" || name === "bipolar") tool.scale.setScalar(1.7);
+          if (name === "drill") tool.scale.setScalar(1.35);
+          addGlove(tool.getObjectByName("shaft") ?? tool);
+        }
       this.room = new OperatingRoom(
         this.scene.environment as THREE.Texture,
         drape,
@@ -455,9 +462,9 @@ export class Engine {
             o instanceof THREE.PointLight ||
             o instanceof THREE.SpotLight
           ) {
-            o.intensity *= 0.28 / (0.035 * 0.035);
+            o.intensity *= 0.14 / (0.035 * 0.035);
             if (o.distance > 0) o.distance /= 0.035;
-          } else o.intensity *= 0.28;
+          } else o.intensity *= 0.14;
         }
         if (o instanceof THREE.Mesh) {
           const p = o.getWorldPosition(new THREE.Vector3());
@@ -1383,14 +1390,20 @@ export class Engine {
               right = new THREE.Vector3(f.y, -f.x, 0).normalize(),
               hand = this.fp.pos
                 .clone()
-                .addScaledVector(f, 1.5)
-                .addScaledVector(right, 1.5)
-                .addScaledVector(new THREE.Vector3(0, 0, 1), -1.15);
+                .addScaledVector(f, 2.5)
+                .addScaledVector(right, 2.6)
+                .addScaledVector(new THREE.Vector3(0, 0, 1), -3.2);
             const dir = hand.sub(this.tip).normalize();
             orient.quaternion.setFromUnitVectors(axis.clone().normalize(), dir);
           }
           if (this.trayView) model.position.set(0.7, -2.5, 1.6);
           else model.position.copy(this.tip).add(new THREE.Vector3(0.6 * swapOffset, -1.0 * swapOffset, 0.1 * swapOffset));
+          const bloodTip = (model.getObjectByName("shaft") ?? model).getObjectByName("bloodTip");
+          if (bloodTip) {
+            const amount = Math.min(1, this.state.bloodLoss / 160 + this.state.bleeding * 0.4);
+            bloodTip.visible = amount > 0.12 && name !== "irrigation";
+            bloodTip.scale.set(1, 0.6 + amount * 0.9, 0.6 + amount * 0.9);
+          }
           if (name === "clip") {
             const jaws = model.getObjectByName("jaws");
             if (jaws) {

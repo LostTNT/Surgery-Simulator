@@ -1,5 +1,24 @@
 import * as THREE from "three";
 
+/** Fine random micro-relief so the wet sheen sparkles instead of streaking like cling film. */
+function wetNoise() {
+  const size = 256,
+    canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d")!,
+    img = ctx.createImageData(size, size);
+  for (let i = 0; i < size * size; i++) {
+    img.data[i * 4] = 128 + (Math.random() - 0.5) * 70;
+    img.data[i * 4 + 1] = 128 + (Math.random() - 0.5) * 70;
+    img.data[i * 4 + 2] = 255;
+    img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(10, 10);
+  return tex;
+}
 // A small wrap-light term softens the waxy silhouette of opaque tissue without
 // the extra scene render (and glass-like refraction) of a transmission material.
 export function tissueMaterial(texture: THREE.Texture) {
@@ -9,11 +28,13 @@ export function tissueMaterial(texture: THREE.Texture) {
     map: texture,
     bumpMap: texture,
     bumpScale: 0.032,
-    color: 0xe3c1b0,
-    roughness: 0.4,
-    clearcoat: 0.78,
-    clearcoatRoughness: 0.12,
-    sheen: 0.22,
+    color: 0xc99484,
+    roughness: 0.46,
+    clearcoat: 0.55,
+    clearcoatRoughness: 0.08,
+    clearcoatNormalMap: wetNoise(),
+    clearcoatNormalScale: new THREE.Vector2(0.9, 0.9),
+    sheen: 0.1,
     sheenColor: new THREE.Color(0xb85f54),
     sheenRoughness: 0.75,
     envMapIntensity: 0.62,

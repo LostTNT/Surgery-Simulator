@@ -53,12 +53,14 @@ export class BoneWindow {
     );
     this.mesh = new THREE.Mesh(
       this.geometry,
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshPhysicalMaterial({
         map: texture,
         bumpMap: texture,
         bumpScale: 0.024,
-        color: 0xb89d78,
-        roughness: 0.58,
+        color: 0xcdb995,
+        roughness: 0.38,
+        clearcoat: 0.35,
+        clearcoatRoughness: 0.4,
         vertexColors: true,
         side: THREE.DoubleSide,
       }),
@@ -226,9 +228,11 @@ export class BoneWindow {
       edgeColors: number[] = [],
       edgeIndices: number[] = [],
       segments = 160,
-      shades = [0xcab08c, 0xb49775, 0x7d4c43].map((c) => new THREE.Color(c));
-    for (let row = 0; row < 3; row++) {
-      const scale = row === 0 ? 1.06 : row === 1 ? 1.025 : 1;
+      // outer table, bloody diploe, inner table, dura edge, then the dark depth of the head.
+      shades = [0xd9ccb0, 0xd9ccb0, 0x7e3b2c, 0xc9b597, 0xb9a79a, 0x1c0b08].map((c) => new THREE.Color(c)),
+      drops = [-0.004, -0.05, -0.12, -0.17, -0.22, NaN];
+    for (let row = 0; row < 6; row++) {
+      const scale = row === 0 ? 1.06 : row === 1 ? 1.03 : 1;
       for (let i = 0; i <= segments; i++) {
         const angle = (i / segments) * Math.PI * 2,
           x = Math.cos(angle) * CUT_RX * scale,
@@ -236,9 +240,9 @@ export class BoneWindow {
           rimX = Math.cos(angle) * CUT_RX * 1.06,
           rimY = Math.sin(angle) * CUT_RY * 1.06,
           rimHeight = this.height(rimX, rimY) - this.cut.at(rimX, rimY) * 0.16;
-        edgePositions.push(x, y, row === 0 ? rimHeight - 0.004 : row === 1 ? rimHeight - 0.17 : -0.72);
+        edgePositions.push(x, y, row === 5 ? -0.72 : rimHeight + drops[row]);
         edgeColors.push(shades[row].r, shades[row].g, shades[row].b);
-        if (row < 2 && i < segments) {
+        if (row < 5 && i < segments) {
           const k = row * (segments + 1) + i,
             next = k + segments + 1;
           edgeIndices.push(k, k + 1, next, k + 1, next + 1, next);
