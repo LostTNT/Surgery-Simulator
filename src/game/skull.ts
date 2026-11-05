@@ -17,11 +17,11 @@ export const WINDOW_RADIUS = 2.12;
 export class Skull {
   private grid: Float32Array | null = null;
   private drapeGrid: Float32Array | null = null;
-  private readonly x0 = -8;
-  private readonly y0 = -9;
+  private readonly x0 = -12;
+  private readonly y0 = -14;
   private readonly step = 0.1;
-  private readonly nx = 161;
-  private readonly ny = 181;
+  private readonly nx = 241;
+  private readonly ny = 281;
   /** Raw height of the head surface, or NaN where there is no head. */
   headTop(x: number, y: number): number {
     if (!this.grid) return NaN;

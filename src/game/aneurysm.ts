@@ -101,20 +101,60 @@ export function buildAneurysm(scene: THREE.Scene, surface: Surface): AneurysmObj
   axisLine.computeLineDistances();
   axisLine.renderOrder = 24;
   group.add(axisLine);
+  // The pool follows the cortex: every vertex is lowered onto the surface so a ridge
+  // cannot cut a wedge out of it.
+  const RINGS = 9,
+    SEG = 44;
+  const poolGeo = new THREE.BufferGeometry();
+  poolGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array((RINGS * SEG + 1) * 3), 3));
+  const poolIndex: number[] = [];
+  for (let i = 0; i < SEG; i++) {
+    poolIndex.push(0, 1 + i, 1 + ((i + 1) % SEG));
+    for (let r = 0; r < RINGS - 1; r++) {
+      const a = 1 + r * SEG + i,
+        b = 1 + r * SEG + ((i + 1) % SEG),
+        c = a + SEG,
+        d = b + SEG;
+      poolIndex.push(a, c, b, b, c, d);
+    }
+  }
+  poolGeo.setIndex(poolIndex);
   const pool = new THREE.Mesh(
-    new THREE.CircleGeometry(1, 40),
+    poolGeo,
     new THREE.MeshPhysicalMaterial({
-      color: 0x3a0407,
-      roughness: 0.5,
-      clearcoat: 0,
-      envMapIntensity: 0.05,
+      color: 0x4a0508,
+      roughness: 0.3,
+      clearcoat: 0.5,
+      clearcoatRoughness: 0.25,
+      envMapIntensity: 0.12,
       transparent: true,
       opacity: 0.97,
       polygonOffset: true,
       polygonOffsetFactor: -4,
       depthWrite: false,
+      side: THREE.DoubleSide,
     }),
   );
+  pool.frustumCulled = false;
+  let poolKey = "";
+  function reshapePool(cx: number, cy: number, rx: number, ry: number) {
+    const key = `${cx.toFixed(3)}|${cy.toFixed(3)}|${rx.toFixed(2)}|${ry.toFixed(2)}`;
+    if (key === poolKey) return;
+    poolKey = key;
+    const pos = poolGeo.getAttribute("position") as THREE.BufferAttribute;
+    pos.setXYZ(0, cx, cy, surface(cx, cy) + 0.03);
+    for (let r = 0; r < RINGS; r++)
+      for (let i = 0; i < SEG; i++) {
+        const a = (i / SEG) * Math.PI * 2;
+        const edge = 1 + 0.12 * Math.sin(a * 3 + 0.7) + 0.07 * Math.sin(a * 5 + 2.1);
+        const f = ((r + 1) / RINGS) * edge;
+        const x = cx + Math.cos(a) * rx * f,
+          y = cy + Math.sin(a) * ry * f;
+        pos.setXYZ(1 + r * SEG + i, x, y, surface(x, y) + 0.03 + 0.012 * (1 - (r + 1) / RINGS));
+      }
+    pos.needsUpdate = true;
+    poolGeo.computeVertexNormals();
+  }
   pool.renderOrder = 6;
   group.add(pool);
   const placed = buildClipJaws();
@@ -179,8 +219,12 @@ export function buildAneurysm(scene: THREE.Scene, surface: Surface): AneurysmObj
       });
       pool.visible = a.phase === "ruptured";
       if (pool.visible) {
-        pool.position.set(a.dome[0], a.dome[1], surface(a.dome[0], a.dome[1]) + 0.045);
-        pool.scale.set(0.3 + state.bleeding * 0.45 + 0.012 * pulse, 0.25 + state.bleeding * 0.38, 1);
+        reshapePool(
+          a.dome[0],
+          a.dome[1],
+          0.2 + Math.round(state.bleeding * 40) / 40 * 0.32,
+          0.17 + Math.round(state.bleeding * 40) / 40 * 0.27,
+        );
       }
       placed.visible = a.phase === "clipped";
       if (placed.visible) {

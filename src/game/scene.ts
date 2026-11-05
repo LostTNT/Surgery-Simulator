@@ -70,8 +70,8 @@ function ringGeometry(
     uv: number[] = [],
     indices: number[] = [],
     colors: number[] = [];
-  const radial = cloth ? 220 : wrap ? 16 : 5,
-    angular = 160;
+  const radial = cloth ? 330 : wrap ? 16 : 5,
+    angular = cloth ? 360 : 160;
   for (let j = 0; j <= radial; j++)
     for (let i = 0; i <= angular; i++) {
       const a = (i / angular) * Math.PI * 2,
@@ -166,15 +166,15 @@ export function buildField(
     color: 0x2f7468,
     side: THREE.DoubleSide,
   });
-  mesh(ringGeometry(2.9, 16, 0, true, false, (x, y) => skull.drape(x, y)), cloth, scene);
+  mesh(ringGeometry(2.9, 30, 0, true, false, (x, y) => skull.drape(x, y)), cloth, scene);
   const bone = new THREE.MeshPhysicalMaterial({
     color: 0xcdb995,
     map: boneTexture,
     bumpMap: boneTexture,
     bumpScale: 0.022,
     vertexColors: true,
-    roughness: 0.38,
-    clearcoat: 0.35,
+    roughness: 0.62,
+    clearcoat: 0.08,
     clearcoatRoughness: 0.4,
     side: THREE.DoubleSide,
   });
