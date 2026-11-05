@@ -248,10 +248,16 @@ export class OperatingRoom {
           Math.exp(-Math.pow((z - 0.6) / 0.75, 4));
         const edge =
           Math.max(0, Math.abs(x) - 0.39) * 1.05 + Math.max(0, z - 1.1) * 0.8;
+        // Under the operative field the patient's own cloth lies at the head: sink the
+        // room's drape there so the two surfaces do not fight each other.
+        const dh = Math.hypot(x, z + 1.03);
+        const t = Math.min(1, Math.max(0, (dh - 0.5) / 0.25));
+        const sink = 0.12 * (1 - t * t * (3 - 2 * t));
         const y =
           0.91 +
           Math.max(torso, legs) -
-          edge +
+          edge -
+          sink +
           0.018 * Math.sin(x * 31 + z * 7) * Math.min(1, Math.abs(x) * 1.8);
         pos.push(x, y, z);
         uv.push(i / nx, j / nz);

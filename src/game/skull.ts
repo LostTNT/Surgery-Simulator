@@ -16,6 +16,7 @@ export const WINDOW_RADIUS = 2.12;
  */
 export class Skull {
   private grid: Float32Array | null = null;
+  private drapeGrid: Float32Array | null = null;
   private readonly x0 = -8;
   private readonly y0 = -9;
   private readonly step = 0.1;
@@ -60,15 +61,90 @@ export class Skull {
   bone(x: number, y: number) {
     return this.scalp(x, y) - SCALP_THICKNESS;
   }
-  /** Surface the drape lies on: over the head where there is one, otherwise down on the table. */
+  /** Surface the drape lies on: over the head, tenting smoothly down to the table. */
   drape(x: number, y: number) {
-    // Take the highest point nearby so the cloth never dips under a bump of the skin.
-    let h = NaN;
-    for (const [dx, dy] of [[0, 0], [0.18, 0], [-0.18, 0], [0, 0.18], [0, -0.18], [0.13, 0.13], [-0.13, -0.13], [0.13, -0.13], [-0.13, 0.13]]) {
-      const v = this.headTop(x + dx, y + dy);
-      if (!Number.isNaN(v) && (Number.isNaN(h) || v > h)) h = v;
+    const g = this.drapeGrid;
+    if (!g) return TABLE_Z;
+    const fx = (x - this.x0) / this.step,
+      fy = (y - this.y0) / this.step;
+    const ix = Math.floor(fx),
+      iy = Math.floor(fy);
+    if (ix < 0 || iy < 0 || ix >= this.nx - 1 || iy >= this.ny - 1) return TABLE_Z;
+    const tx = fx - ix,
+      ty = fy - iy,
+      i = iy * this.nx + ix;
+    return (
+      (g[i] * (1 - tx) + g[i + 1] * tx) * (1 - ty) +
+      (g[i + this.nx] * (1 - tx) + g[i + this.nx + 1] * tx) * ty
+    );
+  }
+  /** Cloth heights: the head surface plus a margin, relaxed outward with a gentle slope. */
+  private buildDrape(head: Float32Array) {
+    const nx = this.nx,
+      ny = this.ny,
+      slope = 1.1 * this.step;
+    let d = new Float32Array(head.length);
+    // Start from the raw (unsmoothed) scan, widened by one cell, so no bump of the skin
+    // can poke through the cloth.
+    for (let j = 0; j < ny; j++)
+      for (let i = 0; i < nx; i++) {
+        let h = NaN;
+        for (let dj = -1; dj <= 1; dj++)
+          for (let di = -1; di <= 1; di++) {
+            const ii = i + di,
+              jj = j + dj;
+            if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
+            const v = head[jj * nx + ii];
+            if (!Number.isNaN(v) && (Number.isNaN(h) || v > h)) h = v;
+          }
+        d[j * nx + i] = Number.isNaN(h) ? TABLE_Z : Math.max(TABLE_Z, h + 0.08);
+      }
+    const relax = (i: number, j: number, di: number, dj: number, cost: number) => {
+      const ii = i + di,
+        jj = j + dj;
+      if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) return;
+      const v = d[jj * nx + ii] - cost;
+      if (v > d[j * nx + i]) d[j * nx + i] = v;
+    };
+    for (let pass = 0; pass < 2; pass++) {
+      for (let j = 0; j < ny; j++)
+        for (let i = 0; i < nx; i++) {
+          relax(i, j, -1, 0, slope);
+          relax(i, j, 0, -1, slope);
+          relax(i, j, -1, -1, slope * 1.41);
+          relax(i, j, 1, -1, slope * 1.41);
+        }
+      for (let j = ny - 1; j >= 0; j--)
+        for (let i = nx - 1; i >= 0; i--) {
+          relax(i, j, 1, 0, slope);
+          relax(i, j, 0, 1, slope);
+          relax(i, j, 1, 1, slope * 1.41);
+          relax(i, j, -1, 1, slope * 1.41);
+        }
     }
-    return Number.isNaN(h) ? TABLE_Z : Math.max(TABLE_Z, h + 0.07);
+    // Soften, then make sure the cloth still clears the skin everywhere.
+    for (let pass = 0; pass < 4; pass++) {
+      const out = new Float32Array(d.length);
+      for (let j = 0; j < ny; j++)
+        for (let i = 0; i < nx; i++) {
+          let sum = 0,
+            w = 0;
+          for (let dj = -1; dj <= 1; dj++)
+            for (let di = -1; di <= 1; di++) {
+              const ii = i + di,
+                jj = j + dj;
+              if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
+              const wt = di === 0 && dj === 0 ? 4 : di === 0 || dj === 0 ? 2 : 1;
+              sum += d[jj * nx + ii] * wt;
+              w += wt;
+            }
+          out[j * nx + i] = sum / w;
+        }
+      d = out;
+    }
+    for (let k = 0; k < d.length; k++)
+      if (!Number.isNaN(head[k])) d[k] = Math.max(d[k], head[k] + 0.06);
+    this.drapeGrid = d;
   }
   /** Sample the head by casting rays straight down over a grid. */
   build(mesh: THREE.Mesh) {
@@ -87,6 +163,36 @@ export class Skull {
         const hit = ray.intersectObject(mesh, false)[0];
         grid[j * this.nx + i] = hit ? hit.point.z : NaN;
       }
-    this.grid = grid;
+    // The scan is a coarse mesh: smooth the sampled heights so the layered scalp
+    // edge and the bone follow a clean curve instead of the triangle facets.
+    let src = grid;
+    for (let pass = 0; pass < 5; pass++) {
+      const out = new Float32Array(src.length);
+      for (let j = 0; j < this.ny; j++)
+        for (let i = 0; i < this.nx; i++) {
+          const k = j * this.nx + i;
+          if (Number.isNaN(src[k])) {
+            out[k] = NaN;
+            continue;
+          }
+          let sum = 0,
+            w = 0;
+          for (let dj = -1; dj <= 1; dj++)
+            for (let di = -1; di <= 1; di++) {
+              const ii = i + di,
+                jj = j + dj;
+              if (ii < 0 || jj < 0 || ii >= this.nx || jj >= this.ny) continue;
+              const v = src[jj * this.nx + ii];
+              if (Number.isNaN(v)) continue;
+              const wt = di === 0 && dj === 0 ? 4 : di === 0 || dj === 0 ? 2 : 1;
+              sum += v * wt;
+              w += wt;
+            }
+          out[k] = sum / w;
+        }
+      src = out;
+    }
+    this.grid = src;
+    this.buildDrape(grid);
   }
 }
