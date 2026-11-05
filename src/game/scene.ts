@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { DecalGeometry } from "three/addons/geometries/DecalGeometry.js";
+import type { Skull } from "./skull";
 import {
   BLEEDING_CONTROL_THRESHOLD,
   POCKET_CLEAR_THRESHOLD,
@@ -52,38 +53,52 @@ export function headDrop(r: number) {
   const s = Math.min(1, (r - 2.3) / 1.1);
   return 0.056 + 4.5 * s * s * (3 - 2 * s) + Math.max(0, r - 3.4) * 0.005;
 }
-function ringGeometry(inner: number, outer: number, z: number, cloth = false, wrap = false) {
+/** The soft irregular outline shared by a scalp layer and its cut face. */
+export function scalpUneven(a: number, z: number) {
+  const phase = z * 41;
+  return 1 + 0.03 * Math.sin(a * 3 + phase) + 0.016 * Math.sin(a * 7 + phase * 1.7);
+}
+function ringGeometry(
+  inner: number,
+  outer: number,
+  z: number,
+  cloth = false,
+  wrap = false,
+  fn?: (x: number, y: number) => number,
+) {
   const p: number[] = [],
     uv: number[] = [],
     indices: number[] = [],
     colors: number[] = [];
-  const radial = cloth ? 110 : wrap ? 16 : 5,
+  const radial = cloth ? 220 : wrap ? 16 : 5,
     angular = 160;
   for (let j = 0; j <= radial; j++)
     for (let i = 0; i <= angular; i++) {
       const a = (i / angular) * Math.PI * 2,
         r = inner + ((outer - inner) * j) / radial;
       // The scalp is a soft ellipse; only the drape has real folds.
-      // Each layer has its own gentle irregularity so the scalp edge is not a set of perfect rings.
-      const phase = z * 41;
-      const uneven = 1 + (cloth ? 0.006 : 0.03) * Math.sin(a * 3 + phase) + (cloth ? 0.004 : 0.016) * Math.sin(a * 7 + phase * 1.7);
+      const uneven = cloth ? 1 + 0.006 * Math.sin(a * 3 + z * 41) : scalpUneven(a, z);
       const crease = Math.abs(Math.sin(a * 6 + r * 0.7)) * 0.03;
       const fold = cloth
         ? (Math.sin(a * 11 + r * 3) * 0.02 + Math.sin(a * 5 - r * 2) * 0.025 + crease * 0.5) *
           Math.min(1, (r - inner) * 2) *
           (r > 3.6 ? 0.6 : 1.4)
         : Math.sin(a * 19) * 0.004;
+      const px = Math.cos(a) * r * uneven,
+        py = Math.sin(a) * r * 0.84 * uneven;
       p.push(
-        Math.cos(a) * r * uneven,
-        Math.sin(a) * r * 0.84 * uneven,
-        z +
-          fold -
-          (cloth || wrap ? headDrop(r) : 0) +
-          (cloth
-            ? 0.012 * Math.sin(r * 5)
-            : wrap
-              ? 0
-              : Math.sin((j / radial) * Math.PI) * 0.02),
+        px,
+        py,
+        fn
+          ? fn(px, py) + z + (cloth ? fold + 0.012 * Math.sin(r * 5) : 0)
+          : z +
+              fold -
+              (cloth || wrap ? headDrop(r) : 0) +
+              (cloth
+                ? 0.012 * Math.sin(r * 5)
+                : wrap
+                  ? 0
+                  : Math.sin((j / radial) * Math.PI) * 0.02),
       );
       uv.push((p[p.length - 3] + 6) / 12, (p[p.length - 2] + 6) / 12);
       const n = (Math.sin(i * 4.7 + j * 3.2) + 1) * 0.5;
@@ -137,6 +152,7 @@ export function buildField(
   pockets: Pocket[],
   cortex: THREE.Mesh,
   boneTexture: THREE.Texture,
+  skull: Skull,
 ): FieldObjects {
   drape.colorSpace = THREE.SRGBColorSpace;
   drape.wrapS = drape.wrapT = THREE.RepeatWrapping;
@@ -150,7 +166,7 @@ export function buildField(
     color: 0x2f7468,
     side: THREE.DoubleSide,
   });
-  mesh(ringGeometry(2.3, 8, 0.4, true), cloth, scene);
+  mesh(ringGeometry(2.9, 16, 0, true, false, (x, y) => skull.drape(x, y)), cloth, scene);
   const bone = new THREE.MeshPhysicalMaterial({
     color: 0xcdb995,
     map: boneTexture,
@@ -162,21 +178,62 @@ export function buildField(
     clearcoatRoughness: 0.4,
     side: THREE.DoubleSide,
   });
-  mesh(ringGeometry(1.72, 2.02, 0.3), bone, scene);
+  mesh(ringGeometry(1.72, 2.02, -0.008, false, false, (x, y) => skull.bone(x, y)), bone, scene);
   const edge = new THREE.MeshPhysicalMaterial({
     color: 0x8c3b36,
     roughness: 0.37,
     clearcoat: 0.6,
     side: THREE.DoubleSide,
   });
-  mesh(ringGeometry(1.65, 1.73, 0.255), edge, scene);
+  mesh(ringGeometry(1.65, 1.73, -0.05, false, false, (x, y) => skull.bone(x, y)), edge, scene);
   // The scalp, from the cut edge outward: galea, wet dermis, fat, then skin stained with betadine.
   const wet = (color: number, rough = 0.3, clearcoat = 0.8) =>
     new THREE.MeshPhysicalMaterial({ color, roughness: rough, clearcoat, clearcoatRoughness: 0.15, side: THREE.DoubleSide });
-  mesh(ringGeometry(1.9, 1.97, 0.386), wet(0xd8cfc0, 0.4, 0.5), scene);
-  mesh(ringGeometry(1.97, 2.03, 0.393), wet(0x7a1d1d), scene);
-  mesh(ringGeometry(2.03, 2.12, 0.399), wet(0xd6b25e, 0.45, 0.4), scene);
-  mesh(ringGeometry(2.12, 2.34, 0.4, false, true), wet(0x8f5a36, 0.62, 0.12), scene);
+  const scalp = (x: number, y: number) => skull.scalp(x, y);
+  mesh(ringGeometry(1.9, 1.97, 0, false, false, scalp), wet(0xd8cfc0, 0.4, 0.5), scene);
+  mesh(ringGeometry(1.97, 2.03, 0.003, false, false, scalp), wet(0x7a1d1d), scene);
+  mesh(ringGeometry(2.03, 2.12, 0.006, false, false, scalp), wet(0xd6b25e, 0.45, 0.4), scene);
+  // The cut face of the retracted scalp: a vertical strip of skin, fat, galea and periosteum.
+  {
+    const bands: [number, number][] = [
+      [0, 0xb5726a],
+      [-0.05, 0xb5726a],
+      [-0.05, 0xd8b45e],
+      [-0.12, 0xd8b45e],
+      [-0.12, 0xdcd3c4],
+      [-0.15, 0xdcd3c4],
+      [-0.15, 0x7a2b25],
+      [-0.17, 0x7a2b25],
+    ];
+    const pos: number[] = [],
+      col: number[] = [],
+      idx: number[] = [],
+      segs = 160;
+    for (let i = 0; i <= segs; i++) {
+      const a = (i / segs) * Math.PI * 2,
+        u = scalpUneven(a, 0),
+        x = Math.cos(a) * 1.9 * u,
+        y = Math.sin(a) * 1.9 * 0.84 * u,
+        top = skull.scalp(x, y);
+      for (const [dz, hex] of bands) {
+        const c = new THREE.Color(hex);
+        pos.push(x, y, top + dz);
+        col.push(c.r, c.g, c.b);
+      }
+      if (i < segs)
+        for (let k = 0; k < bands.length - 1; k++) {
+          const a0 = i * bands.length + k,
+            b0 = (i + 1) * bands.length + k;
+          idx.push(a0, b0, a0 + 1, b0, b0 + 1, a0 + 1);
+        }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    mesh(g, new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.35, clearcoat: 0.7, clearcoatRoughness: 0.2, side: THREE.DoubleSide }), scene);
+  }
   // Skull clamp: a C-arc behind the head with three pins and a post to the table.
   const steelDark = new THREE.MeshStandardMaterial({ color: 0x2a2e33, metalness: 0.7, roughness: 0.32 });
   const clampArc = mesh(new THREE.TorusGeometry(3.3, 0.12, 12, 80, Math.PI * 0.62), steelDark, scene);
@@ -207,7 +264,7 @@ export function buildField(
     wallPoints.push(
       x * 1.67 * uneven,
       y * 1.67 * 0.84 * uneven,
-      0.255,
+      skull.bone(x * 1.67 * uneven, y * 1.67 * 0.84 * uneven) - 0.05,
       x * 1.79,
       y * 1.79 * 0.84,
       -0.66,

@@ -16,6 +16,8 @@ import { BokehPass } from "three/addons/postprocessing/BokehPass.js";
 import { addGlove, latex as gloveLatex } from "./gloves";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { gradeShader, makeSplat } from "./grade";
+import { Skull } from "./skull";
+import { loadPatientHead, placeHead, HEAD_POSE, type PatientHead } from "./patient";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { BoneWindow, buildBurr } from "./access";
 import { SoftTissue } from "./soft-tissue";
@@ -133,6 +135,20 @@ export class Engine {
   accessPhase: "bone" | "lifting" | "surgery" = "bone";
   trayView = false;
   /** A scrub-nurse handoff in progress: the old tool drops out, the new one rises in. */
+  skull = new Skull();
+  patient: PatientHead | null = null;
+  /** Re-sample the skull surface after the head has moved (also used to tune the pose in development). */
+  rebuildSkull(pose?: Partial<typeof HEAD_POSE> & { rz?: number }) {
+    if (!this.patient) return;
+    Object.assign(HEAD_POSE, pose);
+    if (pose?.rz !== undefined) this.patient.mesh.rotation.z = pose.rz;
+    placeHead(this.patient.mesh);
+    let mesh: THREE.Mesh | null = null;
+    this.patient.mesh.traverse((o) => {
+      if (!mesh && o instanceof THREE.Mesh) mesh = o;
+    });
+    if (mesh) this.skull.build(mesh);
+  }
   lamp: THREE.SpotLight | null = null;
   pmrem!: THREE.PMREMGenerator;
   /** A press made while the instrument is still being handed over starts working once it arrives. */
@@ -444,6 +460,13 @@ export class Engine {
       } catch {
         /* the built-in room environment stays */
       }
+      try {
+        this.patient = await loadPatientHead(assetBase, loader);
+        this.scene.add(this.patient.mesh);
+        this.rebuildSkull();
+      } catch {
+        this.patient = null; // the flat plate with a gentle dome remains
+      }
       anatomy.scene.updateMatrixWorld(true);
       corticalTexture.colorSpace = THREE.SRGBColorSpace;
       corticalTexture.anisotropy = 8;
@@ -459,6 +482,19 @@ export class Engine {
           }
           o.geometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
           o.material = tissueMaterial(corticalTexture);
+          if (this.skull.hasHead) {
+            // Bend the cortex to follow the curve of the patient's skull, so it sits under the bone.
+            const base = this.skull.bone(0, 0);
+            for (let i = 0; i < positions.count; i++)
+              positions.setZ(
+                i,
+                positions.getZ(i) + (this.skull.bone(positions.getX(i), positions.getY(i)) - base),
+              );
+            positions.needsUpdate = true;
+            o.geometry.computeVertexNormals();
+            o.geometry.computeBoundingBox();
+            o.geometry.computeBoundingSphere();
+          }
           o.geometry.boundsTree = new MeshBVH(o.geometry);
           o.raycast = acceleratedRaycast;
           o.receiveShadow = true;
@@ -477,11 +513,12 @@ export class Engine {
         this.state.pockets,
         this.brain,
         boneTexture,
+        this.skull,
       );
       this.aneurysm = buildAneurysm(this.scene, (x, y) => this.surface(x, y));
       this.tumor = buildTumor(this.scene, (x, y) => this.surface(x, y), this.brain);
       this.wounds = buildWounds(this.scene, (x, y) => this.surface(x, y), this.brain);
-      this.bone = new BoneWindow(this.scene, boneTexture);
+      this.bone = new BoneWindow(this.scene, boneTexture, this.skull);
       for (const [name, model] of [
         ["suction", suction],
         ["irrigation", irrigation],

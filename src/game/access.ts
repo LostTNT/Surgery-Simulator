@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { BoneCut, CUT_RX, CUT_RY } from "./bone-cut";
+import type { Skull } from "./skull";
 export class BoneWindow {
   cut = new BoneCut();
   geometry = new THREE.BufferGeometry();
@@ -19,7 +20,9 @@ export class BoneWindow {
   liftTime = -1;
   positions: Float32Array;
   colors: Float32Array;
-  constructor(scene: THREE.Scene, texture: THREE.Texture) {
+  skull!: Skull;
+  constructor(scene: THREE.Scene, texture: THREE.Texture, skull: Skull) {
+    this.skull = skull;
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = 8;
     const count = this.cut.damage.length;
@@ -113,11 +116,9 @@ export class BoneWindow {
     scene.add(this.dust);
     this.rebuild();
   }
+  /** Outer surface of the bone: it follows the curve of the patient's skull. */
   height(x: number, y: number) {
-    return (
-      0.36 +
-      0.18 * Math.max(0, 1 - (x * x) / (1.67 * 1.67) - (y * y) / (1.39 * 1.39))
-    );
+    return this.skull.bone(x, y);
   }
   rebuild(outerOnly = false) {
     const indices: number[] = [];

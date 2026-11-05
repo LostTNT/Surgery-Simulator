@@ -74,7 +74,7 @@ Requires Node 22+ and a WebGL 2 browser. There is no backend and no API key.
 
 ## Credits and licences
 
-Operating-room HDRI "Surgery" and the drape fabric are CC0 from [Poly Haven](https://polyhaven.com). See [`public/ASSETS.md`](public/ASSETS.md).
+Operating-room HDRI "Surgery" and the drape fabric are CC0 from [Poly Haven](https://polyhaven.com). The patient's head is the Lee Perry-Smith scan by Infinite Realities (CC BY 3.0). See [`public/ASSETS.md`](public/ASSETS.md).
 
 The cortical surface is a modified FreeSurfer *fsaverage5* surface obtained through Nilearn. Required notices are in [`public/ASSETS.md`](public/ASSETS.md) and [`public/licenses/`](public/licenses). Instruments, tray, room, aneurysm, tumour and scan graphics are original to this project. No endorsement by MGH, FreeSurfer or Nilearn is claimed.
 
