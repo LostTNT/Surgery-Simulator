@@ -81,7 +81,7 @@ export function buildAneurysm(scene: THREE.Scene, surface: Surface): AneurysmObj
     new THREE.MeshPhysicalMaterial({ color: 0xf0cfae, roughness: 0.2, clearcoat: 1, transparent: true, opacity: 0.9 }),
   );
   group.add(bleb);
-  const tetherMat = new THREE.MeshStandardMaterial({ color: 0xb36a58, roughness: 0.5 });
+  const tetherMat = new THREE.MeshPhysicalMaterial({ color: 0xc98f7e, roughness: 0.35, transparent: true, opacity: 0.78, clearcoat: 0.4 });
   const tethers: THREE.Mesh[] = [];
   const guideMat = new THREE.MeshBasicMaterial({
     color: 0xd6dfc2,
@@ -186,7 +186,7 @@ export function buildAneurysm(scene: THREE.Scene, surface: Surface): AneurysmObj
         mid = start.clone().lerp(end, 0.5);
       mid.z += 0.018;
       const t = new THREE.Mesh(
-        new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(start, mid, end), 14, 0.011, 8),
+        new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(start, mid, end), 14, 0.0065, 6),
         tetherMat,
       );
       t.castShadow = true;

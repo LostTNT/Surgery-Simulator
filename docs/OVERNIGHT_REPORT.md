@@ -70,7 +70,7 @@ Not done from the review: blood hiding the whole field until suctioned, a brain 
 - **Cinematic arrival:** the camera glides through the room to your place at the table while the lamp stutters on and the story lines appear as subtitles.
 - **Two Opus reviews** found real bugs (permanent pointer-lock failure, entering the microscope pausing the game, the gaze dragging the tool, noclip camera, the blood pool blowing out white); all fixed.
 
-**Tried and not shipped:** a scanned human head (Lee Perry-Smith, CC BY 3.0) as the patient. It looks excellent on its own, but our surgical field is a flat plate and a real skull is a curved dome, so wrapping scalp, bone and brain around it means rebuilding that geometry. It is the biggest remaining step toward photorealism and needs its own round.
+**Scanned head:** first tried and set aside because the field was a flat plate; shipped in Round 4 below, once the skull geometry was rebuilt on the curved surface.
 
 **Honest ceiling:** the brain is a low-resolution public atlas surface and most of the room is procedural, so this is a convincing stylised game, not photographic. I could not measure GPU frame rate (the sandbox renders at about 1 fps), so the presets and auto step-down are untested on real hardware.
 
@@ -80,6 +80,8 @@ Not done from the review: blood hiding the whole field until suctioned, a brain 
 - Bone, the layered scalp cut face (skin, fat, galea), the bone layers, the cut-edge strip and the cortex patch (bent to the dome) all follow that curved surface.
 - The scan's skin is cut away inside the incision by a shader, so the scalp layers sit exactly in the opening. A green drape tents smoothly from the head down to the table; the room's own drape was sunk beneath it to stop z-fighting.
 - Credit for the scan is in `public/ASSETS.md` and the README.
+- After an Opus visual review: the rupture blood is now a pool that follows the cortex surface (no wedge cut out by a ridge), bone is drier and less glossy, tethers are thin translucent strands, and the drape reaches the shoulders.
+- Case 04 was played start to finish with real mouse and keys on the skull build (tethers, neck, clip, examine): 0 browser errors.
 
 ## Verification
 
