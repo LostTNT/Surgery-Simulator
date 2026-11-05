@@ -28,3 +28,7 @@ The reference surface and this game are not approved clinical tools. No endorsem
 
 - `env/surgery_1k.hdr`: "Surgery" HDRI by Oliksiy Yakovlyev from [Poly Haven](https://polyhaven.com/a/surgery), **CC0**. Used only for environment lighting and reflections.
 - `textures/drape.png`: derived from "Stretch Poplin" by Poly Haven, **CC0** ([polyhaven.com/a/stretch_poplin](https://polyhaven.com/a/stretch_poplin)), converted to greyscale and contrast-stretched so the material colour tints it. Replaces the earlier generated texture.
+
+## Patient head scan
+
+- `models/head.glb`, `textures/head-col.jpg`, `textures/head-normal.jpg`: the "Lee Perry-Smith" head scan from the [three.js examples](https://github.com/mrdoob/three.js/tree/dev/examples/models/gltf/LeePerrySmith), scanned by Lee Perry-Smith / [Infinite Realities](https://www.ir-ltd.net/), licensed **CC BY 3.0**. Modified for this project: re-posed face-up on the operating table, antiseptic skin tint, and an incision window cut in the shader. The skull surface used for the craniotomy is sampled from this mesh. Not a clinical dataset; the cortex beneath is still the fsaverage atlas patch bent to fit.
