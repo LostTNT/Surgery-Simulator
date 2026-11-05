@@ -74,6 +74,13 @@ Not done from the review: blood hiding the whole field until suctioned, a brain 
 
 **Honest ceiling:** the brain is a low-resolution public atlas surface and most of the room is procedural, so this is a convincing stylised game, not photographic. I could not measure GPU frame rate (the sandbox renders at about 1 fps), so the presets and auto step-down are untested on real hardware.
 
+## Round 4: a real head under the window
+
+- **The patient is a real scanned head.** The surgical window now sits on a curved skull, not a flat plate. The Lee Perry-Smith head scan (CC BY 3.0, Infinite Realities) lies face-up on the table; the skull height is sampled from it by ray casts (`src/game/skull.ts`) and smoothed.
+- Bone, the layered scalp cut face (skin, fat, galea), the bone layers, the cut-edge strip and the cortex patch (bent to the dome) all follow that curved surface.
+- The scan's skin is cut away inside the incision by a shader, so the scalp layers sit exactly in the opening. A green drape tents smoothly from the head down to the table; the room's own drape was sunk beneath it to stop z-fighting.
+- Credit for the scan is in `public/ASSETS.md` and the README.
+
 ## Verification
 
 - **Unit tests: 79 passing** (`npm test`). New rules covered: vitals and collapse, grading, rupture, tether release, neck dissection, clip success/miss/pinch/blind, tumour feeders and motor zone, drain geometry and pressure, difficulty-gated twists.
