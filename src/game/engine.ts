@@ -134,7 +134,6 @@ export class Engine {
   softTissue: SoftTissue | null = null;
   accessPhase: "bone" | "lifting" | "surgery" = "bone";
   trayView = false;
-  /** A scrub-nurse handoff in progress: the old tool drops out, the new one rises in. */
   skull = new Skull();
   patient: PatientHead | null = null;
   /** Re-sample the skull surface after the head has moved (also used to tune the pose in development). */
@@ -461,9 +460,11 @@ export class Engine {
         /* the built-in room environment stays */
       }
       try {
-        this.patient = await loadPatientHead(assetBase, loader);
-        this.scene.add(this.patient.mesh);
+        const head = await loadPatientHead(assetBase, loader);
+        if (this.disposed) return;
+        this.patient = head;
         this.rebuildSkull();
+        this.scene.add(head.mesh);
       } catch {
         this.patient = null; // the flat plate with a gentle dome remains
       }
@@ -790,15 +791,30 @@ export class Engine {
       if (strict && this.ray.ray.direction.z > -0.15) return; // looking sideways: nothing to cut
       // Aim on the original convex shell so a deepening groove cannot pull
       // the pointer sideways. Working depth follows the carved surface.
+      // The skull is curved, so solve ray.z(t) = bone(x, y) by marching and bisecting.
       const p = new THREE.Vector3();
-      let z = 0.5;
-      for (let i = 0; i < 5; i++) {
-        this.ray.ray.at(
-          (z - this.ray.ray.origin.z) / this.ray.ray.direction.z,
-          p,
-        );
-        z = this.bone.height(p.x, p.y);
+      const gap = (t: number) => {
+        this.ray.ray.at(t, p);
+        return p.z - this.bone!.height(p.x, p.y);
+      };
+      let lo = 0,
+        hi = 0,
+        found = false;
+      for (let t = 0.25; t < 60; t += 0.25) {
+        if (gap(t) <= 0) {
+          hi = t;
+          lo = t - 0.25;
+          found = true;
+          break;
+        }
       }
+      if (!found) return;
+      for (let i = 0; i < 18; i++) {
+        const mid = (lo + hi) / 2;
+        if (gap(mid) > 0) lo = mid;
+        else hi = mid;
+      }
+      this.ray.ray.at(hi, p);
       this.target.x = THREE.MathUtils.clamp(p.x, -1.75, 1.75);
       this.target.y = THREE.MathUtils.clamp(p.y, -1.5, 1.5);
       return;
@@ -1199,7 +1215,7 @@ export class Engine {
         this.target.z = THREE.MathUtils.clamp(
           this.target.z -
             Math.sign(e.deltaY) * (this.precision ? 0.012 : 0.045),
-          -0.55,
+          -1.2,
           1.2,
         );
         this.state.depth = this.target.z;
@@ -1287,7 +1303,7 @@ export class Engine {
       if (e.key.toLowerCase() === "m") this.setDepthAssist(!this.depthAssist);
       if (e.key.toLowerCase() === "f" && !this.depthAssist)
         this.target.z = Math.max(
-          -0.55,
+          -1.2,
           this.target.z - (this.precision ? 0.01 : 0.035),
         );
       if (e.key.toLowerCase() === "r" && !this.depthAssist)
@@ -1758,6 +1774,7 @@ export class Engine {
           geometries.add(o.geometry);
           for (const m of Array.isArray(o.material) ? o.material : [o.material])
             materials.add(m);
+          if (o.customDepthMaterial) materials.add(o.customDepthMaterial);
         }
       });
     for (const m of materials) {

@@ -6,7 +6,7 @@ export const SCALP_THICKNESS = 0.17;
 /** Where the table drape lies, well below the head. */
 export const TABLE_Z = -4.6;
 /** The incision, as an ellipse radius in field units: the scanned skin is removed inside this. */
-export const WINDOW_RADIUS = 2.12;
+export const WINDOW_RADIUS = 2.03;
 
 /**
  * The patient's skull: scalp height as a function of position, sampled from the
@@ -64,7 +64,11 @@ export class Skull {
   /** Surface the drape lies on: over the head, tenting smoothly down to the table. */
   drape(x: number, y: number) {
     const g = this.drapeGrid;
-    if (!g) return TABLE_Z;
+    if (!g) {
+      // No head: a plain cloth over the gentle dome, falling away to the table.
+      const r = Math.hypot(x, y / 0.84);
+      return Math.max(TABLE_Z, this.fallback(x, y) + SCALP_THICKNESS - 0.35 * Math.max(0, r - 2.3));
+    }
     const fx = (x - this.x0) / this.step,
       fy = (y - this.y0) / this.step;
     const ix = Math.floor(fx),
@@ -166,7 +170,7 @@ export class Skull {
     // The scan is a coarse mesh: smooth the sampled heights so the layered scalp
     // edge and the bone follow a clean curve instead of the triangle facets.
     let src = grid;
-    for (let pass = 0; pass < 5; pass++) {
+    for (let pass = 0; pass < 3; pass++) {
       const out = new Float32Array(src.length);
       for (let j = 0; j < this.ny; j++)
         for (let i = 0; i < this.nx; i++) {
@@ -182,8 +186,10 @@ export class Skull {
               const ii = i + di,
                 jj = j + dj;
               if (ii < 0 || jj < 0 || ii >= this.nx || jj >= this.ny) continue;
-              const v = src[jj * this.nx + ii];
-              if (Number.isNaN(v)) continue;
+              // Past the silhouette, lean on the centre sample instead of dropping the
+              // neighbour: averaging only the higher inward cells would lift the rim.
+              let v = src[jj * this.nx + ii];
+              if (Number.isNaN(v)) v = src[k];
               const wt = di === 0 && dj === 0 ? 4 : di === 0 || dj === 0 ? 2 : 1;
               sum += v * wt;
               w += wt;

@@ -166,7 +166,7 @@ export function buildField(
     color: 0x2f7468,
     side: THREE.DoubleSide,
   });
-  mesh(ringGeometry(2.9, 30, 0, true, false, (x, y) => skull.drape(x, y)), cloth, scene);
+  mesh(ringGeometry(skull.hasHead ? 2.9 : 2.12, 30, 0, true, false, (x, y) => skull.drape(x, y)), cloth, scene);
   const bone = new THREE.MeshPhysicalMaterial({
     color: 0xcdb995,
     map: boneTexture,
@@ -294,6 +294,8 @@ export function buildField(
   // Thin curved blade, machined arm and small knurled adjustment wheel.
   const retractor = new THREE.Group();
   scene.add(retractor);
+  // The blade rests on the edge of the bone window, wherever the curved skull puts it.
+  retractor.position.z = skull.bone(-1.7, 0.2) - 0.36;
   const polished = new THREE.MeshStandardMaterial({
     color: 0xa9b1b2,
     metalness: 0.94,
